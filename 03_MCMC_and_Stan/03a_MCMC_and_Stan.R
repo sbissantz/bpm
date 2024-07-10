@@ -1,4 +1,7 @@
-# installing cmdstanr
+#################
+# MCMC and Stan #
+#################
+
 library(cmdstanr)
 # bayesplot: for plotting posterior distributions
 library(bayesplot)
@@ -22,9 +25,9 @@ DietData$Height60IN <- DietData$HeightIN-60
 #################
 
 # density weight in pounds 
-ggplot(data = DietData, aes(x = WeightLB)) + 
+ggplot(data = DietData, aes(x = WeightLB)) +
   geom_histogram(aes(y = ..density..), position = "identity", binwidth = 10) + 
-  geom_density(alpha=.2) 
+  geom_density(alpha=.2)
 
 # density weight in pounds  by group
 ggplot(data = DietData, aes(x = WeightLB, color = factor(DietGroup), 
