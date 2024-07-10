@@ -1,33 +1,39 @@
-# Package installation ======================================================================
-needed_packages = c("invgamma", "ggplot2", "cmdstanr", "HDInterval", "bayesplot")
-for(i in 1:length(needed_packages)){
-  haspackage = require(needed_packages[i], character.only = TRUE)
-  if(haspackage == FALSE){
-    install.packages(needed_packages[i])
-  }
-  library(needed_packages[i], character.only = TRUE)
-}
+#################################################
+# Efficient Stan Code and Generated Quantities #
+#################################################
 
-setwd("./03_MCMC_and_Stan")
+library(cmdstanr)
+# bayesplot: for plotting posterior distributions
+library(bayesplot)
+# HDInterval: for constructing Highest Density Posterior Intervals
+library(HDInterval)
+library(ggplot2)
 
-# Data import ==================================================================
-DietData = read.csv(file = "DietData.csv")
+########
+# data #
+########
 
-# Centering variables ==========================================================
-DietData$Height60IN = DietData$HeightIN-60
+DietData <- read.csv(file = "DietData.csv")
 
-group2 = rep(0, nrow(DietData))
-group2[which(DietData$DietGroup == 2)] = 1
+# centering variables
+DietData$Height60IN <- DietData$HeightIN - 60
 
-group3 = rep(0, nrow(DietData))
-group3[which(DietData$DietGroup == 3)] = 1
+# dummy variable for group 2
+(group2 <- rep(0, nrow(DietData)))
+(pat <- which(DietData$DietGroup == 2))
+group2[pat] <- 1
 
-heightXgroup2 = DietData$Height60IN*group2
-heightXgroup3 = DietData$Height60IN*group3
+# dummy variable for group 3
+group3 <- rep(0, nrow(DietData))
+pat <- which(DietData$DietGroup == 3)
+group3[pat] <- 1
 
+# interaction terms
+heightXgroup2 <- DietData$Height60IN * group2
+heightXgroup3 <- DietData$Height60IN * group3
 
 # adding prior to betas
-model04_Syntax = "
+fml <- "
 
 data {
   int<lower=0> N;
@@ -68,9 +74,11 @@ model {
 
 "
 
-model04_Stan = cmdstan_model(stan_file = write_stan_file(model04_Syntax))
+# compile model
+mdl04 <- cmdstan_model(stan_file = write_stan_file(fml), pedantic = TRUE)
 
-mode04_StanData = list(
+# build r list for stan
+stanls <- list(
   N = nrow(DietData),
   weightLB = DietData$WeightLB,
   height60IN = DietData$Height60IN,
@@ -80,10 +88,10 @@ mode04_StanData = list(
   heightXgroup3 = heightXgroup3
 )
 
-
-model04_Samples = model04_Stan$sample(
-  data = mode04_StanData,
-  seed = 190920221,
+# run MCMC chain (sample from posterior p.d.)
+fit04 <- model04_Stan$sample(
+  data = stanls,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 1000,
@@ -91,13 +99,19 @@ model04_Samples = model04_Stan$sample(
 )
 
 # assess convergence: summary of all parameters
-model04_Samples$summary()
+fit04$summary()
 
+###############
+# Matrix form #
+###############
+# making it easier to supply input into Stan
+# important: no need to recomplie the model with new data
 
-# making it easier to supply input into Stan ====================================
+# Model equation
+# y = f(X) = X * beta + alpha + epsilon
 
-# adding prior to betas
-model05_Syntax = "
+# adding multivariate prior p.d. to betas
+fml <- "
 
 data {
   int<lower=0> N;         // number of observations
@@ -108,7 +122,7 @@ data {
   vector[P] meanBeta;       // prior mean vector for coefficients
   matrix[P, P] covBeta; // prior covariance matrix for coefficients
   
-  real sigmaRate;         // prior rate parameter for residual standard deviation
+  real sigmaRate;         // prior rate parameter for residual sd
 }
 
 
@@ -127,23 +141,24 @@ model {
 "
 
 # start with model formula
-model05_formula = formula(WeightLB ~ Height60IN + factor(DietGroup) + Height60IN:factor(DietGroup), data = DietData)
+mdl05_fml <- formula(WeightLB ~ Height60IN + factor(DietGroup) + 
+Height60IN:factor(DietGroup), data = DietData)
 
 # grab model matrix
-model05_predictorMatrix = model.matrix(model05_formula, data=DietData)
+mdl05_predictorMatrix <- model.matrix(mdl05_fml, data = DietData)
 dim(model05_predictorMatrix)
 
 # find details of model matrix
-N = nrow(model05_predictorMatrix)
-P = ncol(model05_predictorMatrix)
+N <- nrow(mdl05_predictorMatrix)
+P <- ncol(mdl05_predictorMatrix)
 
 # build matrices of hyper parameters (for priors)
-meanBeta = rep(0, P)
-covBeta = diag(x = 10000, nrow = P, ncol = P)
-sigmaRate = .1
+(meanBeta <- rep(0, P))
+(covBeta <- diag(x = 10000, nrow = P, ncol = P))
+(sigmaRate <- .1)
 
-# build Stan data from model matrix
-model05_data = list(
+# build r list for stan
+stanls <- list(
   N = N,
   P = P,
   X = model05_predictorMatrix,
@@ -153,11 +168,13 @@ model05_data = list(
   sigmaRate = sigmaRate
 )
 
-model05_Stan = cmdstan_model(stan_file = write_stan_file(model05_Syntax))
+# compile model -- this method is for stan code as a string
+mdl05 <- cmdstan_model(stan_file = write_stan_file(fml), pedantic = TRUE)
 
-model05_Samples = model05_Stan$sample(
+# run MCMC chain (sample from posterior p.d.)
+fit05 <- mdl05$sample(
   data = model05_data,
-  seed = 23092022,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 1000,
@@ -165,15 +182,19 @@ model05_Samples = model05_Stan$sample(
 )
 
 # assess convergence: summary of all parameters
-model05_Samples$summary()
+fit05$summary()
+fit05$cmdstan_diagnose()
+fit05$print()
+fit05$diagnostic_summary()
 
 # maximum R-hat
-max(model05_Samples$summary()$rhat)
+max(fit05$summary()$rhat)
 
-# Forming Diet Group 2 Slope ============
+######################
+# diet group 2 slope #
+######################
 
-slopeG2 = model05_Samples$draws("beta[2]") + model05_Samples$draws("beta[4]")
-
+slopeG2 <- fit05$draws("beta[2]") + fit05$draws("beta[4]")
 summary(slopeG2)
 
 # posterior histograms
@@ -185,7 +206,7 @@ mcmc_dens(slopeG2)
 # Forming Diet Group 2 via Stan Generated Quantites (scalar version) ==========
 
 # adding prior to betas
-model04b_Syntax = "
+fml <- "
 
 data {
   int<lower=0> N;
@@ -197,7 +218,6 @@ data {
   vector[N] heightXgroup3;
 }
 
-
 parameters {
   real beta0;
   real betaHeight;
@@ -207,7 +227,6 @@ parameters {
   real betaHxG3;
   real<lower=0> sigma;
 }
-
 
 model {
   beta0 ~ normal(0,1);
@@ -224,15 +243,18 @@ model {
     betaHxG3 * heightXgroup3, sigma);
 }
 
-generated quantities{
+generated quantities {
   real slopeG2;
   slopeG2 = betaHeight + betaHxG2;
 }
+
 "
 
-model04b_Stan = cmdstan_model(stan_file = write_stan_file(model04b_Syntax))
+# compile model -- this method is for stan code as a string
+mdl04b <- cmdstan_model(stan_file = write_stan_file(fml))
 
-mode04b_StanData = list(
+# build r list for stan
+stanls <- list(
   N = nrow(DietData),
   weightLB = DietData$WeightLB,
   height60IN = DietData$Height60IN,
@@ -242,8 +264,7 @@ mode04b_StanData = list(
   heightXgroup3 = heightXgroup3
 )
 
-
-model04b_Samples = model04b_Stan$sample(
+fit04b = mdl04b$sample(
   data = mode04b_StanData,
   seed = 190920221,
   chains = 4,
@@ -253,12 +274,14 @@ model04b_Samples = model04b_Stan$sample(
 )
 
 # assess convergence: summary of all parameters
-model04b_Samples$summary()
+fit04b$summary()
 
-# Stan with Matrices and Contrasts ============================================
+##########################
+# Matrices and Contrasts #
+##########################
 
 # adding prior to betas
-model05b_Syntax = "
+fml <- "
 
 data {
   int<lower=0> N;         // number of observations
@@ -275,7 +298,6 @@ data {
   matrix[nContrasts,P] contrastMatrix;   // contrast matrix for additional effects
 }
 
-
 parameters {
   vector[P] beta;         // vector of coefficients for Beta
   real<lower=0> sigma;    // residual standard deviation
@@ -291,15 +313,17 @@ generated quantities {
   vector[nContrasts] contrasts;
   contrasts = contrastMatrix*beta;
 }
+
 "
 
-nContrasts = 2 
-contrastMatrix = matrix(data = 0, nrow = nContrasts, ncol = P)
+nContrasts <- 2
+(contrastMatrix <- matrix(data = 0, nrow = nContrasts, ncol = P))
 contrastMatrix[1,2] = contrastMatrix[1,5] = 1 # for slope for group=2
 contrastMatrix[2,1] = contrastMatrix[2,3] = 1 # for intercept for group=2
+contrastMatrix
 
 # build Stan data from model matrix
-model05b_data = list(
+stanls = list(
   N = N,
   P = P,
   X = model05_predictorMatrix,
@@ -311,11 +335,12 @@ model05b_data = list(
   nContrasts = nContrasts
 )
 
-model05b_Stan = cmdstan_model(stan_file = write_stan_file(model05b_Syntax))
+# compile model -- this method is for stan code as a string
+mdl05b <- cmdstan_model(stan_file = write_stan_file(fml), pedantic = TRUE)
 
-model05b_Samples = model05b_Stan$sample(
-  data = model05b_data,
-  seed = 23092022,
+fit05b <- mdl05b$sample(
+  data = stanls,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 1000,
@@ -323,25 +348,26 @@ model05b_Samples = model05b_Stan$sample(
 )
 
 # assess convergence: summary of all parameters
-model05b_Samples$summary()
+fit05b$summary()
 
 # assess convergence: summary of all parameters
-max(model05b_Samples$summary()$rhat)
+max(fit05b$summary()$rhat)
 
 # visualize posterior timeseries
-mcmc_trace(model05b_Samples$draws("contrasts[1]"))
+mcmc_trace(fit05b$draws("contrasts[1]"))
 
 # posterior histograms
-mcmc_hist(model05b_Samples$draws("contrasts[1]"))
+mcmc_hist(fit05b$draws("contrasts[1]"))
 
 # posterior densities
-mcmc_dens(model05b_Samples$draws("contrasts[1]"))
+mcmc_dens(fit05b$draws("contrasts[1]"))
 
-
-# Stan with Matrices, Contrasts, and R^2 ============================================
+################################
+# Matrices, Contrasts, and R^2 #
+################################
 
 # adding prior to betas
-model05c_Syntax = "
+fml <- "
 
 data {
   int<lower=0> N;         // number of observations
@@ -379,22 +405,23 @@ generated quantities {
   {
     vector[N] pred;
     pred = X*beta;
-    rss = dot_self(y-pred);
+    rss = dot_self(y-pred); // Dot product of a vector with itself (scalar)
     totalrss = dot_self(y-mean(y));
   }
   
   real R2;
   R2 = 1-rss/totalrss;
 }
+
 "
 
-nContrasts = 2 
-contrastMatrix = matrix(data = 0, nrow = nContrasts, ncol = P)
+nContrasts <- 2 
+contrastMatrix <- matrix(data = 0, nrow = nContrasts, ncol = P)
 contrastMatrix[1,2] = contrastMatrix[1,5] = 1 # for slope for group=2
 contrastMatrix[2,1] = contrastMatrix[2,3] = 1 # for intercept for group=2
 
 # build Stan data from model matrix
-model05c_data = list(
+stanls = list(
   N = N,
   P = P,
   X = model05_predictorMatrix,
@@ -406,11 +433,13 @@ model05c_data = list(
   nContrasts = nContrasts
 )
 
-model05c_Stan = cmdstan_model(stan_file = write_stan_file(model05c_Syntax))
+# compile model -- this method is for stan code as a string
+mdl05c <- cmdstan_model(stan_file = write_stan_file(fml), pedantic = TRUE)
 
-model05c_Samples = model05c_Stan$sample(
-  data = model05c_data,
-  seed = 23092022,
+# run MCMC chain (sample from posterior p.d.)
+fit05c = mdl05c$sample(
+  data = stanls,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 1000,
@@ -418,19 +447,15 @@ model05c_Samples = model05c_Stan$sample(
 )
 
 # assess convergence: summary of all parameters
-model05c_Samples$summary()
-
-# assess convergence: summary of all parameters
-max(model05c_Samples$summary()$rhat, na.rm=TRUE)
+fit05c$cmdstan_diagnose()
+fit05c$print()
+fit05c$diagnostic_summary()
 
 # visualize posterior timeseries
-mcmc_trace(model05c_Samples$draws("R2"))
+mcmc_trace(fit05c$draws("R2"))
 
 # posterior histograms
-mcmc_hist(model05c_Samples$draws("R2"))
+mcmc_hist(fit05c$draws("R2"))
 
 # posterior densities
-mcmc_dens(model05c_Samples$draws("R2"))
-
-
-save.image(file = "03b.RData")
+mcmc_dens(fit05c$draws("R2"))
