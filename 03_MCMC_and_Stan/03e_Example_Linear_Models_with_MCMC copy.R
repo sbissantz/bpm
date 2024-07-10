@@ -1,55 +1,67 @@
-# Package installation ======================================================================
-needed_packages = c("invgamma", "ggplot2", "cmdstanr", "HDInterval", "bayesplot")
-for(i in 1:length(needed_packages)){
-  haspackage = require(needed_packages[i], character.only = TRUE)
-  if(haspackage == FALSE){
-    install.packages(needed_packages[i])
-  }
-  library(needed_packages[i], character.only = TRUE)
-}
+# #################################
+# Example_Linear_Models_with_MCMC #
+# #################################
 
-if (!requireNamespace("modeest")) install.packages("modeest")
-library(modeest)
 library(ggplot2)
+library(cmdstanr)
+library(bayesplot)
+library(modeest)
 
-# Data import ==================================================================
+########
+# data #
+########
 
-setwd("./03_MCMC_and_Stan")
+# outcome: Weight in pounds
+DietData <- read.csv(file = "DietData.csv")
 
-DietData = read.csv(file = "DietData.csv")
+# important that we know what 0 is in our interaction
+# center predictor variable
+# gives E(Y | X = 60) NOT 0 anymore
+DietData$Height60IN <- DietData$HeightIN-60
+
+#################
+# visualization #
+#################
 
 ggplot(data = DietData, aes(x = WeightLB)) + 
   geom_histogram(aes(y = ..density..), position = "identity", binwidth = 10) + 
   geom_density(alpha=.2) 
 
-
 ggplot(data = DietData, aes(x = WeightLB, color = factor(DietGroup), fill = factor(DietGroup))) + 
   geom_histogram(aes(y = ..density..), position = "identity", binwidth = 10) + 
   geom_density(alpha=.2) 
 
-
 ggplot(data = DietData, aes(x = HeightIN, y = WeightLB, shape = factor(DietGroup), color = factor(DietGroup))) +
   geom_smooth(method = "lm", se = FALSE) + geom_point()
 
-# Centering variables ==========================================================
-# Important that we know what 0 is in our interaction
-DietData$Height60IN = DietData$HeightIN-60
+#################
+# linear model  #
+#################
+
+# Asm  y = f(X) + e = beta0 + beta1*X + e
+# where e ~ N(0, sigma_e^2)
+
+############################
+# Ordinary least squares  #
+########################### 
 
 # full analysis model suggested by data: =======================================
-FullModel = lm(formula = WeightLB ~ Height60IN + factor(DietGroup) + Height60IN:factor(DietGroup), data = DietData)
+full_fml <- WeightLB ~ Height60IN + factor(DietGroup) + 
+  Height60IN:factor(DietGroup)
+full_mdl <- lm(formula = full_fml, data = DietData)
 
 # examining assumptions and leverage of fit
-plot(FullModel)
+plot(full_mdl)
 
 # looking at ANOVA table
-anova(FullModel)
+anova(full_mdl)
 
 # looking at parameter summary
-summary(FullModel)
+summary(full_mdl)
 
 # building Stan code for same model -- initially wihtout priors
 
-model01_Syntax = "
+fml_mdl01 <- "
 
 data {
   int<lower=0> N;
@@ -80,17 +92,21 @@ model {
 
 "
 
-group2 = rep(0, nrow(DietData))
-group2[which(DietData$DietGroup == 2)] = 1
+#############
+# stan list #
+#############
 
-group3 = rep(0, nrow(DietData))
-group3[which(DietData$DietGroup == 3)] = 1
+group2 <- rep(0, nrow(DietData))
+group2[which(DietData$DietGroup == 2)] <- 1
 
-heightXgroup2 = DietData$Height60IN*group2
-heightXgroup3 = DietData$Height60IN*group3
+group3 <- rep(0, nrow(DietData))
+group3[which(DietData$DietGroup == 3)]<- 1
+
+heightXgroup2 <- DietData$Height60IN * group2
+heightXgroup3 <- DietData$Height60IN * group3
 
 # building Stan data into R list
-mode01_StanData = list(
+stanls_mdl01 <- list(
   N = nrow(DietData),
   weightLB = DietData$WeightLB,
   height60IN = DietData$Height60IN,
@@ -100,56 +116,73 @@ mode01_StanData = list(
   heightXgroup3 = heightXgroup3
 )
 
-model01_Stan = cmdstan_model(stan_file = write_stan_file(model01_Syntax))
+# compile model -- this method is for stan code as a string
+mdl01 <- cmdstan_model(stan_file = write_stan_file(fml_mdl01))
 
-model01_Samples = model01_Stan$sample(
-  data = mode01_StanData,
-  seed = 19092022,
+# run MCMC chain (sample from posterior p.d.)
+fit01 <- mdl01$sample(
+  data = stanls_mdl01,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 10000,
   iter_sampling = 10000
 )
 
+###############
+# diagnostics #
+###############
+
 # assess convergence: summary of all parameters
-model01_Samples$summary()
+fit01$print()
+fit01$cmdstan_diagnose()
+fit01$diagnostic_summary()
 
 # maximum R-hat
-max(model01_Samples$summary()$rhat)
+max(fit01$summary()$rhat)
 
 # visualize posterior timeseries
-mcmc_trace(model01_Samples$draws())
+mcmc_trace(fit01$draws())
 
 # posterior histograms
-mcmc_hist(model01_Samples$draws())
+mcmc_hist(fit01$draws())
 
 # posterior densities
-mcmc_dens(model01_Samples$draws())
+mcmc_dens(fit01$draws())
 
 # next: compare model results with results from lm()
 
-stanSummary01 = model01_Samples$summary()
-lsSummary01 = summary(FullModel)
+stanSummary01 <- fit01$summary()
+lsSummary01 <- summary(full_mdl)
 
+################################################################################
 # comparison of fixed effects
-cbind(lsSummary01$coefficients[,1:2], stanSummary01[2:7,c(2,4)])
+cbind(lsSummary01$coefficients[, 1:2], stanSummary01[2:7, c(2, 4)])
 
-# What do you notice being different?
+# what do you notice being different?
+# -> posterior standard deviations are always bigger than standard errors!
+################################################################################
 
-
+################################################################################
 # comparison of residual standard deviation
-cbind(lsSummary01$sigma, stanSummary01[8,c(2:4)])
+cbind(lsSummary01$sigma, stanSummary01[8, c(2:4)])
 
-# What do you notice being different?
+# what do you notice being different?
+# -> residual standard deviation versus is bigger than residual standard errors!
 
-mcmc_dens(model01_Samples$draws(variables = "sigma"))
+# Why?
+
+# Integrate full p.d. of sigmma 
+mcmc_dens(fit01$draws(variables = "sigma"))
+
+# ...instead of just looking at the mode (point estimate)
 
 # calculating mode of posterior for sigma
-mlv(model01_Samples$draws("sigma"), method = "meanshift")
-
+mlv(fit01$draws("sigma"), method = "meanshift")
+################################################################################
 
 # building model to mirror ls model
-model02_Syntax = "
+fml_mdl02 <- "
 
 data {
   int<lower=0> N;
@@ -176,50 +209,64 @@ model {
   weightLB ~ normal(
     beta0 + betaHeight * height60IN + betaGroup2 * group2 + 
     betaGroup3 * group3 + betaHxG2 *heightXgroup2 +
-    betaHxG3 * heightXgroup3, 7.949437);
+    // IMPORTANT residual standard error from lm model (7.949437)
+    betaHxG3 * heightXgroup3, 7.949437); 
 }
 
 "
+
 # 7.949437 is the Residual standard error from the lm model 
-summary(FullModel)$sigma
+summary(full_mdl)$sigma
 
+# compile model -- this method is for stan code as a string
+mdl02 <- cmdstan_model(stan_file = write_stan_file(fml_mdl02))
 
-model02_Stan = cmdstan_model(stan_file = write_stan_file(model02_Syntax))
-
-model02_Samples = model02_Stan$sample(
-  data = mode01_StanData,
-  seed = 190920221,
+# run MCMC chain (sample from posterior p.d.)
+fit02 <- mdl02$sample(
+  data = stanls_mdl01,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
-  iter_warmup = 1000,
-  iter_sampling = 100000
+  iter_warmup = 1e3,
+  iter_sampling = 1e5
 )
 
-# assess convergence: summary of all parameters
-model02_Samples$summary()
+###############
+# diagnositcs #
+###############
+
+fit02$cmdstan_diagnose()
+fit02$print()
+fit02$diagnostic_summary()
 
 # maximum R-hat
-max(model02_Samples$summary()$rhat)
+max(fit02$summary()$rhat)
 
 # visualize posterior timeseries
-mcmc_trace(model02_Samples$draws())
+mcmc_trace(fit02$draws())
 
 # posterior histograms
-mcmc_hist(model02_Samples$draws())
+mcmc_hist(fit02$draws())
 
 # posterior densities
-mcmc_dens(model02_Samples$draws())
+mcmc_dens(fir02$draws())
 
 # comparison of results
-stanSummary02 = model02_Samples$summary()
-lsSummary02 = summary(FullModel)
+stanSummary02 <- fit02$summary()
+lsSummary02 <- summary(full_mdl)
 
 # comparison of fixed effects
 cbind(lsSummary02$coefficients[,1:2], stanSummary02[2:7,c(2,4)])
 
-# What do you notice being different?
+################################################################################
+# what do you notice being different?
+# -> after fixing the resudual standard deviation, the posterior p.d. standard 
+# deviations is identical to the residual standard error 
+#
+# IMPORT: Bayes resolves the ASM of asymptotic convergence! 
+################################################################################
 
-# Investigating Priors
+# investigating priors
 
 # Prior for sigma: Starting with the exponential distribution
 # https://en.wikipedia.org/wiki/Exponential_distribution
@@ -228,9 +275,9 @@ cbind(lsSummary02$coefficients[,1:2], stanSummary02[2:7,c(2,4)])
 
 # need: value specified for hyperparameter lambda
 
-lambda = c(.1, .5, 1, 5, 10)
-sigma = seq(0,1000, .01)
-y = cbind(
+lambda <- c(.1, .5, 1, 5, 10)
+sigma <- seq(0,1000, .01)
+y <- cbind(
   dexp(x = sigma, rate = lambda[1]),
   dexp(x = sigma, rate = lambda[2]),
   dexp(x = sigma, rate = lambda[3]),
@@ -238,16 +285,23 @@ y = cbind(
   dexp(x = sigma, rate = lambda[5])
 )
 
-x = cbind(sigma, sigma, sigma, sigma, sigma)
+x <- cbind(sigma, sigma, sigma, sigma, sigma)
 
-matplot(x = x, y = y, type = "l", lty = 1:5, col=1:5, lwd = 2)
-legend(x = 50, y = 5, legend = paste0(lambda), lty = 1:5, col=1:5, lwd = 2)
-matplot(x = x, y = y, type = "l", lty = 1:5, col=1:5, xlim=c(0,100), lwd = 2)
-matplot(x = x, y = y, type = "l", lty = 1:5, col=1:5, xlim=c(0,10), lwd = 2)
-matplot(x = x, y = y, type = "l", lty = 1:5, col=1:5, xlim=c(0,4), lwd = 2)
+# Plot columns of matrix
+?matplot
+
+matplot(x = x, y = y, type = "l", lty = 1:5, col = 1:5, lwd = 2)
+legend(x = 50, y = 5, legend = paste0(lambda), lty = 1:5, col = 1:5, lwd = 2)
+matplot(x = x, y = y, type = "l", lty = 1:5, col = 1:5, xlim = c(0, 100), 
+lwd = 2)
+matplot(x = x, y = y, type = "l", lty = 1:5, col = 1:5, xlim = c(0, 10), 
+lwd = 2)
+matplot(x = x, y = y, type = "l", lty = 1:5, col = 1:5, xlim = c(0, 4), 
+lwd = 2)
+
 
 # adding prior variance to sigma
-model03_Syntax = "
+fml_mdl03 = "
 
 data {
   int<lower=0> N;
@@ -281,41 +335,47 @@ model {
 
 "
 
-model03_Stan = cmdstan_model(stan_file = write_stan_file(model03_Syntax))
+# compile model -- this method is for stan code as a string
+mdl03 <- cmdstan_model(stan_file = write_stan_file(fml_mdl03))
 
-model03_Samples = model03_Stan$sample(
-  data = mode01_StanData,
-  seed = 190920221,
+# run MCMC chain (sample from posterior p.d.)
+fit03 = mdl03$sample(
+  data = stanls_mdl01,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 1000,
   iter_sampling = 1000
 )
 
-# assess convergence: summary of all parameters
-model03_Samples$summary()
+###############
+# diagnositcs #
+###############
+
+fit00$cmdstan_diagnose()
+fit00$print()
+fit00$diagnostic_summary()
 
 # maximum R-hat
-max(model03_Samples$summary()$rhat)
+max(fit03$summary()$rhat)
 
 # visualize posterior timeseries
-mcmc_trace(model03_Samples$draws())
+mcmc_trace(fit03$draws())
 
 # posterior histograms
-mcmc_hist(model03_Samples$draws())
+mcmc_hist(fit03$draws())
 
 # posterior densities
-mcmc_dens(model03_Samples$draws())
+mcmc_dens(fit03$draws())
 
 # comparison of results
-stanSummary03 = model03_Samples$summary()
+stanSummary03 = fit03$summary()
 
 # comparison of fixed effects
 cbind(stanSummary01[2:8,2:4], stanSummary03[2:8,2:4])
 
-
 # adding prior to betas
-model04_Syntax = "
+fml_mdl04 = "
 
 data {
   int<lower=0> N;
@@ -327,7 +387,6 @@ data {
   vector[N] heightXgroup3;
 }
 
-
 parameters {
   real beta0;
   real betaHeight;
@@ -337,7 +396,6 @@ parameters {
   real betaHxG3;
   real<lower=0> sigma;
 }
-
 
 model {
   beta0 ~ normal(0,1);
@@ -356,11 +414,13 @@ model {
 
 "
 
-model04_Stan = cmdstan_model(stan_file = write_stan_file(model04_Syntax))
+# compile model -- this method is for stan code as a string
+mdl04 <- cmdstan_model(stan_file = write_stan_file(fml_mdl04))
 
-model04_Samples = model04_Stan$sample(
-  data = mode01_StanData,
-  seed = 190920221,
+# run MCMC chain (sample from posterior p.d.)
+fit04 = mdl04$sample(
+  data = stanls_mdl01, 
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 1000,
@@ -368,30 +428,43 @@ model04_Samples = model04_Stan$sample(
 )
 
 # assess convergence: summary of all parameters
-model04_Samples$summary()
+fit04$summary()
 
 # maximum R-hat
-max(model04_Samples$summary()$rhat)
+max(fit04$summary()$rhat)
 
 # visualize posterior timeseries
-mcmc_trace(model04_Samples$draws())
+mcmc_trace(fit04$draws())
 
 # posterior histograms
-mcmc_hist(model04_Samples$draws())
+mcmc_hist(fit04$draws())
 
 # posterior densities
-mcmc_dens(model04_Samples$draws())
+mcmc_dens(fit04$draws())
 
 # comparison of results
-stanSummary04 = model04_Samples$summary()
+stanSummary04 = fit04$summary()
 
 # comparison of fixed effects
 cbind(stanSummary01[2:8,2:4], stanSummary04[2:8,2:4])
 
-# making it easier to supply input into Stan ====================================
+################################################################################
+# what do you notice being different?
+#
+# -> Standard error increased dramatically because the prior regulaized the
+# estimates to our regularization constraint. Since its too strict, the linear
+# predictions become worse – that is the difference between the observed values
+# and the linearly predicted values increases. That is the residual standard
+# deviation increases.
+################################################################################
+
+##############################################
+# MATRIX ALGEBRA                             #
+# making it easier to supply input into Stan #
+##############################################
 
 # adding prior to betas
-model05_Syntax = "
+fml_mdl05a <- "
 
 data {
   int<lower=0> N;         // number of observations
@@ -420,11 +493,41 @@ model {
 
 "
 
+# TODO: change! make y = X*beta + alpha + e
+
+fml_mdl05b <- "
+
+data {
+  int<lower=0> N;         // number of observations
+  int<lower=0> P;         // number of predictors 
+  matrix[N, P] X;         // model.matrix() from R 
+  vector[N] y;            // outcome
+  
+  vector[P] mu_beta;       // prior mean vector for coefficients
+  matrix[P, P] Sigma_beta; // prior covariance matrix for coefficients
+  
+  real lambda_sigma;       // prior rate parameter for residual sd 
+}
+
+parameters {
+  real alpha;             // intercept 
+  vector[P] beta;         // vector of coefficients for Beta
+  real<lower=0> sigma;    // residual standard deviation
+}
+
+model {
+  beta ~ multi_normal(mu_beta, Sigma_beta); // prior for coefficients
+  sigma ~ exponential(lambda_sigma)         // prior for sigma
+  y ~ normal(X*beta + alpha, sigma);        // linear model
+}
+
+"
+
 # start with model formula
 model05_formula = formula(WeightLB ~ Height60IN + factor(DietGroup) + Height60IN:factor(DietGroup), data = DietData)
 
 # grab model matrix
-model05_predictorMatrix = model.matrix(model05_formula, data=DietData)
+model05_predictorMatrix = model.matrix(model05_formula, data = DietData)
 dim(model05_predictorMatrix)
 
 # find details of model matrix
