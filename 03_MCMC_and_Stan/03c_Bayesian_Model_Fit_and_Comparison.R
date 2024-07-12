@@ -1,31 +1,39 @@
-# Package installation ======================================================================
-needed_packages = c("ggplot2", "cmdstanr", "HDInterval", "bayesplot", "loo")
-for(i in 1:length(needed_packages)){
-  haspackage = require(needed_packages[i], character.only = TRUE)
-  if(haspackage == FALSE){
-    install.packages(needed_packages[i])
-  }
-  library(needed_packages[i], character.only = TRUE)
-}
+# ###################################
+# Bayesian Model Fit and Comparison #
+# ###################################
 
-# Data import ==================================================================
-DietData = read.csv(file = "DietData.csv")
+library(cmdstanr)
+library(bayesplot)
+library(ggplot2)
+library(loo)
 
-# Centering variables ==========================================================
-DietData$Height60IN = DietData$HeightIN-60
+########
+# data #
+########
 
-group2 = rep(0, nrow(DietData))
-group2[which(DietData$DietGroup == 2)] = 1
+# outcome: Weight in pounds
+DietData <- read.csv(file = "DietData.csv")
 
-group3 = rep(0, nrow(DietData))
-group3[which(DietData$DietGroup == 3)] = 1
+# important that we know what 0 is in our interaction
+# center predictor variable
+# gives E(Y | X = 60) NOT 0 anymore
+DietData$Height60IN <- DietData$HeightIN - 60
 
-heightXgroup2 = DietData$Height60IN*group2
-heightXgroup3 = DietData$Height60IN*group3
+# dummy variable for group 2
+group2 <- rep(0, nrow(DietData))
+group2[which(DietData$DietGroup == 2)] <- 1
+
+# dummy variable for group 3
+group3 <- rep(0, nrow(DietData))
+group3[which(DietData$DietGroup == 3)] <- 1
+
+# interaction terms
+heightXgroup2 <- DietData$Height60IN * group2
+heightXgroup3 <- DietData$Height60IN * group3
 
 # our matrix syntax from before, but now with PPMC built in
 
-model06_Syntax = "
+fml06 <- "
 
 data {
   int<lower=0> N;         // number of observations
@@ -33,22 +41,20 @@ data {
   matrix[N, P] X;         // model.matrix() from R 
   vector[N] y;            // outcome
   
-  vector[P] meanBeta;       // prior mean vector for coefficients
-  matrix[P, P] covBeta; // prior covariance matrix for coefficients
+  vector[P] mu_beta;       // prior mean vector for coefficients
+  matrix[P, P] Sigma_beta; // prior covariance matrix for coefficients
   
-  real sigmaRate;         // prior rate parameter for residual standard deviation
+  real lambda_sigma;       // prior rate parameter for residual sd 
 }
-
 
 parameters {
   vector[P] beta;         // vector of coefficients for Beta
   real<lower=0> sigma;    // residual standard deviation
 }
 
-
 model {
-  beta ~ multi_normal(meanBeta, covBeta); // prior for coefficients
-  sigma ~ exponential(sigmaRate);         // prior for sigma
+  beta ~ multi_normal(mu_beta, Sigma_beta); // prior for coefficients
+  sigma ~ exponential(lambda_sigma);         // prior for sigma
   y ~ normal(X*beta, sigma);              // linear model
 }
 
@@ -60,19 +66,22 @@ generated quantities{
 
   // posterior predictive model checking
   
-  array[N] real y_rep;
-  y_rep = normal_rng(y_pred, sigma);
+  array[N] real y_sim; //stan wants an array here
+  y_sim = normal_rng(y_pred, sigma);
   
   real mean_y = mean(y);
   real sd_y = sd(y);
-  real mean_y_rep = mean(to_vector(y_rep));
-  real<lower=0> sd_y_rep = sd(to_vector(y_rep));
-  int<lower=0, upper=1> mean_gte = (mean_y_rep >= mean_y);
-  int<lower=0, upper=1> sd_gte = (sd_y_rep >= sd(y));
+  real mean_y_sim = mean(to_vector(y_sim));
+  real<lower=0> sd_y_sim = sd(to_vector(y_sim));
+
+  //posterior predictive p values
+  int<lower=0, upper=1> mean_gte = (mean_y_sim >= mean_y);
+  int<lower=0, upper=1> sd_gte = (sd_y_sim >= sd(y));
   
   // WAIC and LOO for model comparison
-  
-  array[N] real log_lik;
+ 
+  array[N] real log_lik; //stan wants an array here
+  // Import: We calculate the log likelihood for each person  
   for (person in 1:N){
     log_lik[person] = normal_lpdf(y[person] | y_pred[person], sigma);
   }
@@ -81,158 +90,167 @@ generated quantities{
 "
 
 # compile stan code into executable
-model06_Stan = cmdstan_model(stan_file = write_stan_file(model06_Syntax))
-
+mdl06 <- cmdstan_model(stan_file = write_stan_file(fml06))
 
 # start with model formula
-model06_formula = formula(WeightLB ~ Height60IN + factor(DietGroup) + Height60IN:factor(DietGroup), data = DietData)
+fml <- formula(WeightLB ~ Height60IN + factor(DietGroup) + 
+Height60IN:factor(DietGroup), data = DietData)
 
-temp = lm(model06_formula, data=DietData)
+temp = lm(fml, data = DietData)
 plot(temp)
 # grab model matrix
-model06_predictorMatrix = model.matrix(model06_formula, data=DietData)
+X06 <- model.matrix(fml, data = DietData)
 
 # find details of model matrix
-N = nrow(model06_predictorMatrix)
-P = ncol(model06_predictorMatrix)
+(N <- nrow(X06))
+(P <- ncol(X06))
 
 # build matrices of hyper parameters (for priors)
-meanBeta = rep(0, P)
-covBeta = diag(x = 1000, nrow = P, ncol = P)
-sigmaRate = .1
+(mu_beta <- rep(0, P))
+(Sigma_beta <- diag(x = 1000, nrow = P, ncol = P))
+(lambda_sigma <- .1)
 
 # build Stan data from model matrix
-model06_data = list(
+stanls06 <- list(
   N = N,
   P = P,
-  X = model06_predictorMatrix,
+  X = X06,
   y = DietData$WeightLB,
-  meanBeta = meanBeta,
-  covBeta = covBeta,
-  sigmaRate = sigmaRate
+  mu_beta = mu_beta,
+  Sigma_beta = Sigma_beta,
+  lambda_sigma = lambda_sigma 
 )
 
-
-model06_Samples = model06_Stan$sample(
-  data = model06_data,
-  seed = 03102022,
+fit06 <- mdl06$sample(
+  data = stanls06,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 1000,
   iter_sampling = 2000
 )
+?draws
+# here, we use format = "draws_matrix" to remove the draws from the array
+# format they default to
+postdraws <- fit06$draws(c("beta", "sigma"), format = "draws_matrix")
+View(postdraws)
 
+# Posterior predictive checks in R
+# Here, we build a predictive distribution
 
-# here, we use format = "draws_matrix" to remove the draws from the array format they default to
-posteriorSample = model06_Samples$draws(variables = c("beta", "sigma"), format = "draws_matrix")
-View(posteriorSample)
+# 1. Take a random draw from posterior (we do this actually for all draws)
+(iter <- sample(x = seq_len(nrow(postdraws)), size = 1, replace = TRUE))
 
-sampleIteration = sample(x = 1:nrow(posteriorSample), size = 1, replace = TRUE)
-sampleIteration
+# 2. Get the one draw from posterior for all parameters
+postdraws[iter, ]
 
-posteriorSample[sampleIteration, ]
+# vector of estimated coefficients for this draw
+(beta_hat <- matrix(data = postdraws[iter, 1:6], ncol = 1))
 
-betaVector = matrix(data = posteriorSample[sampleIteration, 1:6], ncol = 1)
-betaVector
+# estimated residual standard deviation 
+(sigma_hat <- postdraws[iter, 7])
 
-sigma = posteriorSample[sampleIteration, 7]
+# conditional means E(Y | X) for this draw
+# y_hat = X %*% beta_hat
+(condmeans <- X06 %*% beta_hat) 
 
-conditionalMeans = model06_predictorMatrix %*% betaVector
+# simulate data from posterior predictive distribution for this draw
+simdat <- rnorm(n = N, mean = condmeans, sd = sigma_hat)
+hist(simdat)
 
-simData = rnorm(n = N, mean = conditionalMeans, sd = sigma)
-hist(simData)
+(simean <- mean(simdat)) ; mean(DietData$WeightLB)
+(simsd <- sd(simdat)) ; sd(DietData$WeightLB)
 
-simMean = mean(simData)
-simMean
-
-simSD = sd(simData)
-simSD
-
-mean(DietData$WeightLB)
-sd(DietData$WeightLB)
-
-simMean = rep(NA, nrow(posteriorSample))
-simSD = rep(NA, nrow(posteriorSample))
-for (iteration in 1:nrow(posteriorSample)){
-  betaVector = matrix(data = posteriorSample[iteration, 1:6], ncol = 1)
-  sigma = posteriorSample[iteration, 7]
-  
-  conditionalMeans = model06_predictorMatrix %*% betaVector
-  
-  simData = rnorm(n = N, mean = conditionalMeans, sd = sigma)
-  simMean[iteration] = mean(simData)
-  simSD[iteration] = sd(simData)
+# Now, we do this for all draws (and all data points)
+#
+simean <- rep(NA, nrow(postdraws))
+simsd <- rep(NA, nrow(postdraws))
+for (i in seq_len(nrow(postdraws))){
+  beta_hat <- matrix(data = postdraws[i, 1:6], ncol = 1)
+  sigma_hat <- postdraws[i, 7]
+  condmeans <- model06_predictorMatrix %*% beta_hat
+  simdat <- rnorm(n = N, mean = condmeans, sd = sigma_hat)
+  simean[i] <- mean(simdat)
+  simsd[i] <- sd(simdat)
 }
 
-hist(simMean)
+# Posterior predictive mean checking
+hist(simean)
 
 # maximum R-hat
-max(model06_Samples$summary()$rhat, na.rm = TRUE)
+max(fit06$summary()$rhat, na.rm = TRUE)
 
 # show results
-View(model06_Samples$summary())
+View(fit06$summary())
 
-# posterior predictive histograms for data points
-mcmc_hist(model06_Samples$draws("y_rep[1]")) + geom_vline(xintercept = DietData$WeightLB[1], color = "orange")
-mcmc_hist(model06_Samples$draws("y_rep[30]")) + geom_vline(xintercept = DietData$WeightLB[30], color = "orange")
+# posterior predictive histograms for data points 1 and 30
+mcmc_hist(fit06$draws("y_sim[1]")) + 
+  geom_vline(xintercept = DietData$WeightLB[1], color = "orange")
+mcmc_hist(fit06$draws("y_sim[30]")) + 
+  geom_vline(xintercept = DietData$WeightLB[30], color = "orange")
 
 # posterior predictive histograms for statistics of y
-mcmc_hist(model06_Samples$draws("mean_y_rep")) + geom_vline(xintercept = mean(DietData$WeightLB), color = "orange")
-mcmc_hist(model06_Samples$draws("sd_y_rep")) + geom_vline(xintercept = sd(DietData$WeightLB), color = "orange")
+mcmc_hist(fit06$draws("mean_y_sim")) + 
+  geom_vline(xintercept = mean(DietData$WeightLB), color = "orange")
+mcmc_hist(fit06$draws("sd_y_sim")) + 
+  geom_vline(xintercept = sd(DietData$WeightLB), color = "orange")
 
 # calculate WAIC for model comparisons
-waic(x = model06_Samples$draws("log_lik"))
+waic(x = fit06$draws("log_lik"))
 
 # calculate LOO for model comparisons
-model06_Samples$loo()
+fit06$loo()
 
-# next: try more informative prior distributions =========================================
+# next: try more informative prior p.d.
 # build matrices of hyper parameters (for priors)
-meanBeta = rep(0, P)
-covBeta = diag(x = 1, nrow = P, ncol = P)
-sigmaRate = 10
+mu_beta <- rep(0, P)
+Sigma_beta <- diag(x = 1, nrow = P, ncol = P)
+lambda_sigma <- 10
 
 # build Stan data from model matrix
-model06b_data = list(
+stanls06b <- list(
   N = N,
   P = P,
   X = model06_predictorMatrix,
   y = DietData$WeightLB,
-  meanBeta = meanBeta,
-  covBeta = covBeta,
-  sigmaRate = sigmaRate
+  mu_beta = mu_beta,
+  Sigma_beta = Sigma_beta,
+  lambda_sigma = lambda_sigma 
 )
 
+# Important: No need to recompile! Awesome.
 
-model06b_Samples = model06_Stan$sample(
-  data = model06b_data,
-  seed = 031020221,
+fit06b <- mdl06$sample(
+  data = stanls06b,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 1000,
   iter_sampling = 2000
 )
 
-
 # maximum R-hat
-max(model06b_Samples$summary()$rhat, na.rm=TRUE)
+max(fit06b$summary()$rhat, na.rm=TRUE)
 
 # show results
-View(model06b_Samples$summary())
+View(fit06b$summary())
 
 # calculate WAIC for model comparisons
-waic(x = model06_Samples$draws("log_lik"))
-waic(x = model06b_Samples$draws("log_lik"))
+waic(x = fit06$draws("log_lik"))
+waic(x = fit06b$draws("log_lik"))
 
 # calculate LOO for model comparisons
-model06b_Samples$loo()
+fit06b$loo()
 
 # comparing two models with loo:
-loo_compare(list(uniformative=model06_Samples$loo(), informative=model06b_Samples$loo()))
+loo_compare(list(
+  "uniformative prior" = fit06$loo(), 
+  "informative prior" = fit06b$loo())
+)
 
 # final comparison: investigating homogeneity of variance assumption
 
-model07_Syntax = "
+fml07 <- "
 
 data {
   int<lower=0> N;         // number of observations
@@ -240,11 +258,11 @@ data {
   matrix[N, P] X;         // model.matrix() from R 
   vector[N] y;            // outcome
   
-  vector[P] meanBeta;       // prior mean vector for coefficients
-  matrix[P, P] covBeta; // prior covariance matrix for coefficients
+  vector[P] mu_beta;       // prior mean vector for coefficients
+  matrix[P, P] Sigma_beta; // prior covariance matrix for coefficients
   
-  vector[P] meanGamma;       // prior mean vector for coefficients
-  matrix[P, P] covGamma; // prior covariance matrix for coefficients
+  vector[P] mu_gamma;       // prior mean vector for coefficients
+  matrix[P, P] Sigma_gamma; // prior covariance matrix for coefficients
 }
 
 
@@ -255,9 +273,9 @@ parameters {
 
 
 model {
-  beta ~ multi_normal(meanBeta, covBeta); // prior for coefficients
-  gamma ~ multi_normal(meanGamma, covGamma); // prior for coefficients
-  y ~ normal(X*beta, exp(X*gamma));              // linear model
+  beta ~ multi_normal(mu_beta, Sigma_beta); // prior for coefficients
+  gamma ~ multi_normal(mu_gamma, Sigma_gamma); // prior for coefficients
+  y ~ normal( X*beta, exp(X*gamma) );              // linear model
 }
 
 generated quantities{
@@ -270,15 +288,15 @@ generated quantities{
   
   // posterior predictive model checking
   
-  array[N] real y_rep;
-  y_rep = normal_rng(y_pred, y_sd);
+  array[N] real y_sim;
+  y_sim = normal_rng(y_pred, y_sd);
   
   real mean_y = mean(y);
   real sd_y = sd(y);
-  real mean_y_rep = mean(to_vector(y_rep));
-  real<lower=0> sd_y_rep = sd(to_vector(y_rep));
-  int<lower=0, upper=1> mean_gte = (mean_y_rep >= mean_y);
-  int<lower=0, upper=1> sd_gte = (sd_y_rep >= sd(y));
+  real mean_y_sim = mean(to_vector(y_sim));
+  real<lower=0> sd_y_sim = sd(to_vector(y_sim));
+  int<lower=0, upper=1> mean_gte = (mean_y_sim >= mean_y);
+  int<lower=0, upper=1> sd_gte = (sd_y_sim >= sd(y));
   
   // WAIC and LOO for model comparison
   
@@ -291,43 +309,39 @@ generated quantities{
 "
 
 # compile stan code into executable
-model07_Stan = cmdstan_model(stan_file = write_stan_file(model07_Syntax))
-
+mdl07 <- cmdstan_model(stan_file = write_stan_file(fml07))
 
 # start with model formula
-model07_formula = formula(WeightLB ~ Height60IN + factor(DietGroup) + Height60IN:factor(DietGroup), data = DietData)
+fml <- formula(WeightLB ~ Height60IN + factor(DietGroup) + Height60IN:factor(DietGroup), data = DietData)
 
 # grab model matrix
-model07_predictorMatrix = model.matrix(model07_formula, data=DietData)
+X07 = model.matrix(fml, data=DietData)
 
 # find details of model matrix
-N = nrow(model07_predictorMatrix)
-P = ncol(model07_predictorMatrix)
+N = nrow(X07)
+P = ncol(X07)
 
 # build matrices of hyper parameters (for priors)
-meanBeta = rep(0, P)
-covBeta = diag(x = 1000, nrow = P, ncol = P)
-meanGamma = rep(0, P)
-covGamma = diag(x = 1000, nrow = P, ncol = P)
-
-
+(mu_beta = rep(0, P))
+(Sigma_beta = diag(x = 1000, nrow = P, ncol = P))
+(mu_gamma <- rep(0, P))
+(Sigma_gamma = diag(x = 1000, nrow = P, ncol = P))
 
 # build Stan data from model matrix
-model07_data = list(
-  N = N,
-  P = P,
-  X = model06_predictorMatrix,
-  y = DietData$WeightLB,
-  meanBeta = meanBeta,
-  covBeta = covBeta,
-  meanGamma = meanGamma,
-  covGamma = covGamma
+stanls07 = list(
+  "N" = N,
+  "P" = P,
+  "X" = X07,
+  "y" = DietData$WeightLB,
+  "mu_beta" = mu_beta,
+  "Sigma_beta" = Sigma_beta,
+  "mu_gamma" = mu_gamma,
+  "Sigma_gamma" = Sigma_gamma
 )
 
-
-model07_Samples = model07_Stan$sample(
-  data = model07_data,
-  seed = 04102022,
+fit07 = mdl07$sample(
+  data = stanls07,
+  seed =  112,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 2000,
@@ -335,19 +349,20 @@ model07_Samples = model07_Stan$sample(
 )
 
 # maximum R-hat
-max(model07_Samples$summary()$rhat, na.rm = TRUE)
+max(fit07$summary()$rhat, na.rm = TRUE)
 
 # model results
-View(model07_Samples$summary())
-model07_Samples$summary(variables = "gamma")
+View(fit07$summary())
+fit07$summary(variables = "gamma")
 
 # model comparisons
-waic(x = model06_Samples$draws("log_lik"))
-waic(x = model07_Samples$draws("log_lik"))
+waic(x = fit06$draws("log_lik"))
+waic(x = fit07$draws("log_lik"))
 
-model06_Samples$loo()
-model07_Samples$loo()
+fit07$loo()
+fit07$loo()
 
-loo_compare(list(homogeneous = model06_Samples$loo(), heterogeneous = model07_Samples$loo()))
-
-save.image(file = "lecture03c.RData")
+loo_compare(list(
+  "homogeneous" = fit06$loo(), 
+  "heterogeneous" = fit07$loo())
+)
