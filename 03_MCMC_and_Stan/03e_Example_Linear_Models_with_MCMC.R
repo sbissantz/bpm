@@ -291,17 +291,17 @@ x <- cbind(sigma, sigma, sigma, sigma, sigma)
 ?matplot
 
 matplot(x = x, y = y, type = "l", lty = 1:5, col = 1:5, lwd = 2)
-legend(x = 50, y = 5, legend = paste0(lambda), lty = 1:5, col = 1:5, lwd = 2)
 matplot(x = x, y = y, type = "l", lty = 1:5, col = 1:5, xlim = c(0, 100), 
 lwd = 2)
 matplot(x = x, y = y, type = "l", lty = 1:5, col = 1:5, xlim = c(0, 10), 
 lwd = 2)
 matplot(x = x, y = y, type = "l", lty = 1:5, col = 1:5, xlim = c(0, 4), 
 lwd = 2)
+legend(x = 50, y = 5, legend = paste0(lambda), lty = 1:5, col = 1:5, lwd = 2)
 
 
 # adding prior variance to sigma
-fml_mdl03 = "
+fml_mdl03 <- "
 
 data {
   int<lower=0> N;
@@ -418,7 +418,7 @@ model {
 mdl04 <- cmdstan_model(stan_file = write_stan_file(fml_mdl04))
 
 # run MCMC chain (sample from posterior p.d.)
-fit04 = mdl04$sample(
+fit04 <- mdl04$sample(
   data = stanls_mdl01, 
   seed = 112,
   chains = 4,
@@ -478,7 +478,6 @@ data {
   real sigmaRate;         // prior rate parameter for residual standard deviation
 }
 
-
 parameters {
   vector[P] beta;         // vector of coefficients for Beta
   real<lower=0> sigma;    // residual standard deviation
@@ -495,7 +494,7 @@ model {
 
 # TODO: change! make y = X*beta + alpha + e
 
-fml_mdl05b <- "
+fml_mdl05 <- "
 
 data {
   int<lower=0> N;         // number of observations
@@ -510,51 +509,51 @@ data {
 }
 
 parameters {
-  real alpha;             // intercept 
-  vector[P] beta;         // vector of coefficients for Beta
+  vector[P] beta;         // vector of coefficients for beta
   real<lower=0> sigma;    // residual standard deviation
 }
 
 model {
   beta ~ multi_normal(mu_beta, Sigma_beta); // prior for coefficients
-  sigma ~ exponential(lambda_sigma)         // prior for sigma
-  y ~ normal(X*beta + alpha, sigma);        // linear model
+  sigma ~ exponential(lambda_sigma);         // prior for sigma
+  y ~ normal(X*beta, sigma);        // linear model
 }
 
 "
 
 # start with model formula
-model05_formula = formula(WeightLB ~ Height60IN + factor(DietGroup) + Height60IN:factor(DietGroup), data = DietData)
+fml <- formula(WeightLB ~ Height60IN + factor(DietGroup) + Height60IN:factor(DietGroup), data = DietData)
 
 # grab model matrix
-model05_predictorMatrix = model.matrix(model05_formula, data = DietData)
+(model05_predictorMatrix = model.matrix(fml, data = DietData))
 dim(model05_predictorMatrix)
 
 # find details of model matrix
-N = nrow(model05_predictorMatrix)
-P = ncol(model05_predictorMatrix)
+N <- nrow(model05_predictorMatrix)
+P <- ncol(model05_predictorMatrix)
 
 # build matrices of hyper parameters (for priors)
-meanBeta = rep(0, P)
-covBeta = diag(x = 10000, nrow = P, ncol = P)
-sigmaRate = .1
+mu_beta <- rep(0, P)
+Sigma_beta <- diag(x = 10000, nrow = P, ncol = P)
+lambda_sigma <- .1
 
 # build Stan data from model matrix
-model05_data = list(
+stanls_mdl05 <- list(
   N = N,
   P = P,
   X = model05_predictorMatrix,
   y = DietData$WeightLB,
-  meanBeta = meanBeta,
-  covBeta = covBeta,
-  sigmaRate = sigmaRate
+  mu_beta = mu_beta,
+  Sigma_beta = Sigma_beta,
+  lambda_sigma = lambda_sigma 
 )
 
-model05_Stan = cmdstan_model(stan_file = write_stan_file(model05_Syntax))
+mdl05 <- cmdstan_model(stan_file = write_stan_file(fml_mdl05), 
+pedantic = TRUE)
 
-model05_Samples = model05_Stan$sample(
-  data = model05_data,
-  seed = 23092022,
+fit05 = mdl05$sample(
+  data = stanls_mdl05,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 1000,
@@ -562,27 +561,25 @@ model05_Samples = model05_Stan$sample(
 )
 
 # assess convergence: summary of all parameters
-model05_Samples$summary()
+fit05$summary()
 
 # maximum R-hat
-max(model05_Samples$summary()$rhat)
+max(fit05$summary()$rhat)
 
 # visualize posterior timeseries
-mcmc_trace(model05_Samples$draws())
+mcmc_trace(fit05$draws())
 
 # posterior histograms
-mcmc_hist(model05_Samples$draws())
+mcmc_hist(fit05$draws())
 
 # posterior densities
-mcmc_dens(model05_Samples$draws())
+mcmc_dens(fit05$draws())
 
 # comparison of results
-stanSummary05 = model05_Samples$summary()
+stanSummary05 <- fit05$summary()
 
 # comparison of fixed effects
-cbind(stanSummary01[2:8,2:4], stanSummary05[2:8,2:4])
-
-
+cbind(stanSummary01[2:8, 2:4], stanSummary05[2:8, 2:4])
 
 # which models fit the best?
 # how can we tell?
