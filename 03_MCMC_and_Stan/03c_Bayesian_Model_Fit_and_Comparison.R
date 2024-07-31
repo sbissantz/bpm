@@ -96,7 +96,7 @@ mdl06 <- cmdstan_model(stan_file = write_stan_file(fml06))
 fml <- formula(WeightLB ~ Height60IN + factor(DietGroup) + 
 Height60IN:factor(DietGroup), data = DietData)
 
-temp = lm(fml, data = DietData)
+temp <- lm(fml, data = DietData)
 plot(temp)
 # grab model matrix
 X06 <- model.matrix(fml, data = DietData)
