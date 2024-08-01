@@ -14,7 +14,7 @@ library(ggplot2)
 ########
 
 # outcome: Weight in pounds
-DietData <- read.csv(file = "DietData.csv")
+DietData <- read.csv(file = "./data/DietData.csv")
 
 # center predictor variable
 # gives E(Y | X = 60) NOT 0 anymore

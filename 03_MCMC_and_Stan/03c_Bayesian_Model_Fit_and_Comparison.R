@@ -12,7 +12,7 @@ library(loo)
 ########
 
 # outcome: Weight in pounds
-DietData <- read.csv(file = "DietData.csv")
+DietData <- read.csv(file = "./data/DietData.csv")
 
 # important that we know what 0 is in our interaction
 # center predictor variable
