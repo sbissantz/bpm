@@ -59,34 +59,40 @@ data {
   matrix[P, I] Y;                 // item responses in a matrix
 
   vector[I] mu_meanvec;
-  matrix[I, I] mu_covmat;       // prior covariance matrix for coefficients
-  
-  vector[I] lambda_meanvec;     // prior mean vector for coefficients
-  matrix[I, I] lambda_covmat;   // prior covariance matrix for coefficients
-  
-  vector[I] psi_ratevec;            // prior rate parameter for unique standard deviations
+  // prior covariance matrix for coefficients
+  matrix[I, I] mu_covmat;       
+  // prior mean vector for intercepts
+  vector[I] lambda_meanvec;     
+  // prior covariance matrix for coefficients
+  matrix[I, I] lambda_covmat;   
+  // prior rate parameter for unique standard deviations
+  vector[I] psi_ratevec;      
 }
 
 parameters {
-  vector[P] theta;                // the latent variables (one for each person)
-  vector[I] mu;                 // the item intercepts (one for each item)
-  vector[I] lambda;             // the factor loadings/item discriminations (one for each item)
-  vector<lower=0>[I] psi;       // the unique standard deviations (one for each item)   
+  // the latent variables (one for each person)
+  vector[P] theta;                
+  // the item intercepts (one for each item)
+  vector[I] mu;                 
+  // the factor loadings/item discriminations (one for each item)
+  vector[I] lambda;             
+  // the unique standard deviations (one for each item)   
+  vector<lower=0>[I] psi;       
 }
 
 model {
-  
-  lambda ~ multi_normal(lambda_meanvec, lambda_covmat); // Prior for item discrimination/factor loadings
-  mu ~ multi_normal(mu_meanvec, mu_covmat);          // Prior for item intercepts
-  psi ~ exponential(psi_ratevec);                   // Prior for unique standard deviations
-  
-  theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
-                                                // Standardized latent variable
-  
-  for (i in 1:I){                               // Conditional independence of items given theta
+  // prior for item discrimination/factor loadings
+  lambda ~ multi_normal(lambda_meanvec, lambda_covmat); 
+  // prior for item intercepts
+  mu ~ multi_normal(mu_meanvec, mu_covmat);          
+  // prior for unique standard deviations
+  psi ~ exponential(psi_ratevec);
+  // prior for latent variable (with mean/sd specified)
+  theta ~ normal(0, 1); // Standardized latent variable
+  // conditional independence of items given theta
+  for (i in 1:I){                               
     Y[,i] ~ normal(mu[i] + lambda[i]*theta, psi[i]);
   }
-  
 }
 
 "
