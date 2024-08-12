@@ -13,7 +13,7 @@ library(ggplot2)
 # data #
 ########
 
-DietData <- read.csv(file = "DietData.csv")
+DietData <- read.csv(file = "./data/DietData.csv")
 
 # centering variables
 DietData$Height60IN <- DietData$HeightIN - 60
