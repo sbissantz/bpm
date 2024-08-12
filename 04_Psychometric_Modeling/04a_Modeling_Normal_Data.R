@@ -5,6 +5,7 @@
 
 library(cmdstanr)
 library(bayesplot)
+library(ggplot2)
 
 # model the belief in conspiracy theories
 # assuming a normal distribution for the data
@@ -181,129 +182,160 @@ y <- item_summary$mean[which(item_summary$variable == mu_lbl)] +
   item_summary$mean[which(item_summary$variable == lambda_lbl)] * theta
 lines(x = theta, y = y, lwd = 5, lty = 3, col = 2)
 
+# multimodality (2 separate modes)
 mcmc_dens(fit_cfa$draws(variables = "lambda[10]"))
 
 # legend
 legend(x = -3, y = 7, legend = c("Posterior Draw", "Item Limits", "EAP"), 
 col = c(1,4,2), lty = c(1,2,3), lwd=5)
 
-plot(x = item_pars[, 1], y = itemParameters[, 2])
-cor(x = item_pars[, 1], y = itemParameters[, 2])
+
+# multimodality (2 separate modes)
+plot(x = item_pars[, 1], y = item_pars[, 2])
+cor(x = item_pars[, 1], y = item_pars[, 2])
 
 # investigating latent variables
 
 #results
-print(modelCFA_samples$summary(variables = c("theta")) ,n=Inf)
+print(fit_cfa$summary(variables = c("theta")), n = Inf)
+# Almost all parameter estimates are shrunk towards zero
 
 # EAP distribution
-hist(modelCFA_samples$summary(variables = c("theta"))$mean, main="EAP Estimates of Theta", 
-     xlab = expression(theta))
+hist(fit_cfa$summary(variables = c("theta"))$mean, 
+main = "EAP Estimates of Theta", xlab = expression(theta))
+# All the values center around zero (multimodality)
 
-plot(density(modelCFA_samples$summary(variables = c("theta"))$mean), main="EAP Estimates of Theta", 
-     xlab = expression(theta))
+plot(density(fit_cfa$summary(variables = c("theta"))$mean), 
+main = "EAP Estimates of Theta", xlab = expression(theta))
+# All the values center around zero (multimodality)
 
 # Density of All Posterior Draws
-allThetas = modelCFA_samples$draws(variables = c("theta"), format="draws_matrix")
-allThetasVec = c(allThetas)
-hist(allThetasVec)
-
+theta <- fit_cfa$draws(variables = c("theta"), format = "draws_matrix")
+theta_vec <- c(theta)
+hist(theta_vec)
 
 # plotting two theta distributions side-by-side
-theta1 = "theta[1]"
-theta2 = "theta[2]"
-thetaSamples = modelCFA_samples$draws(variables = c(theta1, theta2), format = "draws_matrix")
-thetaVec = rbind(thetaSamples[,1], thetaSamples[,2])
-thetaDF = data.frame(observation = c(rep(theta1,nrow(thetaSamples)), rep(theta2, nrow(thetaSamples))), 
-                     sample = thetaVec)
-names(thetaDF) = c("observation", "sample")
-ggplot(thetaDF, aes(x=sample, fill=observation)) +geom_density(alpha=.25)
+theta1 <- "theta[1]"
+theta2 <- "theta[2]"
+theta_draws <- fit_cfa$draws(variables = c(theta1, theta2), format = "draws_matrix")
+theta_vec <- rbind(theta_draws[,1], theta_draws[,2])
+theta_df <- data.frame(observation = c(rep(theta1, nrow(theta_draws)), rep(theta2, nrow(theta_draws))), 
+sample = theta_vec)
+  rep(theta1, nrow(theta_draws), sample = theta_vec)
+names(theta_df) <- c("observation", "sample")
+ggplot(theta_df, aes(x=sample, fill=observation)) + geom_density(alpha=.25)
+# The resulting distribution is a result of combining the two
+# distributions of theta[1] and theta[2]
 
-## comparing EAP estimates with posterior SDs
-
-plot(y = modelCFA_samples$summary(variables = c("theta"))$sd, x = modelCFA_samples$summary(variables = c("theta"))$mean,
+# comparing EAP estimates with posterior SDs
+plot(y = fit_cfa$summary(variables = c("theta"))$sd, 
+x = fit_cfa$summary(variables = c("theta"))$mean,
      xlab = "E(theta|Y)", ylab = "SD(theta|Y)")
+# BOOM!
+# under normal theory we would expect a line (constant), because
+# ...but this is clearly not the case here
+# we use the same standard deviation (fixed); but allowing for
+# variation in a clearly nonlinear pattern emerges
 
 ## comparing EAP estimates with sum scores
-plot(x = rowSums(conspiracyItems), y = modelCFA_samples$summary(variables = c("theta"))$mean,
+plot(x = rowSums(conspiracy_items), 
+y = fit_cfa$summary(variables = c("theta"))$mean,
      xlab = "Sum Score", ylab = expression(theta))
 
-# Estimating Theta with fixed item parameters ==================================
-lambdaEst = modelCFA_samples$summary(variables = "lambda")$mean
-muEst = modelCFA_samples$summary(variables = "mu")$mean
-psiEst = modelCFA_samples$summary(variables = "psi")$mean
+# Estimating Theta with fixed item parameters 
+lambda_eap <- fit_cfa$summary(variables = "lambda")$mean
+mu_eap <- fit_cfa$summary(variables = "mu")$mean
+psi_eap <- fit_cfa$summary(variables = "psi")$mean
 
-
-modelCFAfixedItems_syntax = "
+# Stan syntax
+fml_fixedcfa <- "
 
 data {
-  int<lower=0> nObs;                 // number of observations
-  int<lower=0> nItems;               // number of items
-  matrix[nObs, nItems] Y;            // item responses in a matrix
+  int<lower=0> P;                 // number of observations
+  int<lower=0> I;               // number of items
+  matrix[P, I] Y;            // item responses in a matrix
 
-  vector[nItems] muEst;
-  vector[nItems] lambdaEst;
-  vector[nItems] psiEst;
+  vector[I] mu_eap;        // (fixed) EAP estimates of item intercepts
+  vector[I] lambda_eap;   // (fixed) EAP estimates of item loadings
+  vector[I] psi_eap;      // (fixed) EAP estimates of unique sd
 }
 
 parameters {
-  vector[nObs] theta;                // the latent variables (one for each person)
+  vector[P] theta;                // the latent variables (one for each person)
 }
 
 model {
   
   theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
   
-  for (item in 1:nItems){
-    Y[,item] ~ normal(muEst[item] + lambdaEst[item]*theta, psiEst[item]);
+  for (item in 1:I){
+    Y[,item] ~ normal(mu_eap[item] + lambda_eap[item]*theta, psi_eap[item]);
   }
   
 }
 
 "
 
-modelCFAfixedItems_stan = cmdstan_model(stan_file = write_stan_file(modelCFAfixedItems_syntax))
+# compile model 
+mdl_fixedcfa <- cmdstan_model(stan_file = write_stan_file(fml_fixedcfa))
 
-modelCFAfixedItems_data = list(
-  nObs = nObs,
-  nItems = nItems,
-  Y = conspiracyItems, 
-  muEst = muEst,
-  lambdaEst = lambdaEst,
-  psiEst = psiEst
+# build r list for stan
+fixedcfa_stanls = list(
+  P = nrow(conspiracy_items),
+  I = ncol(conspiracy_items),
+  Y = conspiracy_items,
+  mu_eap = mu_eap,
+  lambda_eap = lambda_eap,
+  psi_eap = psi_eap
 )
 
-modelCFAfixedItems_samples = modelCFAfixedItems_stan$sample(
-  data = modelCFAfixedItems_data,
-  seed = 28102022,
+# run MCMC chain (sample from posterior p.d.)
+# note run very long chain to get a fine resolution of the tails
+fit_fixedcfa <- mdl_fixedcfa$sample(
+  data = fixedcfa_stanls,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 5000,
   iter_sampling = 50000
 )
 
-fixedItems_ThetaMeans = modelCFAfixedItems_samples$summary(variables = c("theta"))$mean
-fixedItems_ThetaSDs = modelCFAfixedItems_samples$summary(variables = c("theta"))$sd
+# extracting fixed person parameter results
+fixedItems_ThetaMeans <- fit_fixedcfa$summary(variables = c("theta"))$mean
+fixedItems_ThetaSDs <- fit_fixedcfa$summary(variables = c("theta"))$sd
 
 plot(y = fixedItems_ThetaSDs, 
      x = fixedItems_ThetaMeans,
      xlab = "E(theta|Y)", ylab = "SD(theta|Y)")
 
-estimatedItems_ThetaMeans = modelCFA_samples$summary(variables = c("theta"))$mean
-estimatedItems_ThetaSDs = modelCFA_samples$summary(variables = c("theta"))$sd
+# extracting person parameter (estimated) 
+estimatedItems_ThetaMeans <- fit_cfa$summary(variables = c("theta"))$mean
+estimatedItems_ThetaSDs <- fit_cfa$summary(variables = c("theta"))$sd
 
-plot(y = estimatedItems_ThetaMeans, 
+plot(y = estimatedItems_ThetaMeans,
      x = fixedItems_ThetaMeans,
-     xlab = "Fixed Item Parameters", ylab = "Estimated Item Parameters", main = "EAP Theta Estimates")
+     xlab = "Fixed Item Parameters", ylab = "Estimated Item Parameters", 
+     main = "EAP Theta Estimates")
+# Mean is almost perfectly covered, BUT...
+# Mean is a stable quantitiy
 
-plot(y = estimatedItems_ThetaSDs, 
+plot(y = estimatedItems_ThetaSDs,
      x = fixedItems_ThetaSDs,
-     xlab = "Fixed Item Parameters", ylab = "Estimated Item Parameters", main = "Theta Posterior SDs")
+     xlab = "Fixed Item Parameters", ylab = "Estimated Item Parameters", 
+     main = "Theta Posterior SDs")
+#....the SDs are not
 
+# With estimates fixed at the EAP values, we dramatically overstate
+# our certainty in the estimates of theta, especially with a small sample size 
+# Put another our uncertainty in the itemparameters does not translate to 
+# uncertainty in the person parameters!
 
-# Convergence Fails ============================================================
+#####################
+# Convergence Fails #
+#####################
 
-modelCFA_samplesFail = modelCFA_stan$sample(
-  data = modelCFA_data,
+fit_failedcfa <- mdl_cfa$sample(
+  data = stanls_cfa,
   seed = 25102022,
   chains = 4,
   parallel_chains = 4,
@@ -312,75 +344,88 @@ modelCFA_samplesFail = modelCFA_stan$sample(
 )
 
 # checking convergence
-max(modelCFA_samplesFail$summary()$rhat, na.rm = TRUE)
+max(fit_failedcfa$summary()$rhat, na.rm = TRUE)
 
 # item parameter results
-print(modelCFA_samplesFail$summary(variables = c("mu", "lambda", "psi")) ,n=Inf)
+print(fit_failedcfa$summary(variables = c("mu", "lambda", "psi")), n=Inf)
 
 # person parameter results
-print(modelCFA_samplesFail$summary(variables = c("theta")) ,n=Inf)
+print(fit_failedcfa$summary(variables = c("theta")), n = Inf)
 
 # plotting trace
-mcmc_trace(modelCFA_samplesFail$draws(variables = "lambda"))
+mcmc_trace(fit_failedcfa$draws(variables = "lambda"))
+# Two separated modes! Three chains are stuck in one mode, one in the other
 
 # plotting densities
-mcmc_dens(modelCFA_samplesFail$draws(variables = "lambda"))
-mcmc_dens(modelCFA_samplesFail$draws(variables = c("theta[1]","theta[2]","theta[3]")))
+mcmc_dens(fit_failedcfa$draws(variables = "lambda"))
+mcmc_dens(fit_failedcfa$draws(variables = c("theta[1]", "theta[2]", "theta[3]")))
+# Two separated modes! Three chains are stuck in one mode, one in the other
 
 # investigating item parameters
-itemNumber = 3
+itemno <- 3
 
-labelMu = paste0("mu[", itemNumber, "]")
-labelLambda = paste0("lambda[", itemNumber, "]")
-labelPsi = paste0("psi[", itemNumber, "]")
-itemParameters = modelCFA_samplesFail$draws(variables = c(labelMu, labelLambda, labelPsi), format = "draws_matrix")
-itemSummary = modelCFA_samplesFail$summary(variables = c(labelMu, labelLambda, labelPsi))
+mu_lbl <- paste0("mu[", itemno, "]")
+lambda_lbl <- paste0("lambda[", itemno, "]")
+psi_lbl <- paste0("psi[", itemno, "]")
+item_pars <- failedcfa$draws(variables = c(mu_lbl, lambda_lbl, psi_lbl), 
+format <- "draws_matrix")
+item_summary <- failed_cfa$summary(variables = c(mu_lbl, lambda_lbl, psi_lbl))
 
 # item plot
-theta = seq(-3,3,.1) # for plotting analysis lines--x axis values
-
+theta <- seq(-3, 3, .1) # for plotting analysis lines--x axis values
+ 
 # drawing item characteristic curves for item
-y = as.numeric(itemParameters[1,labelMu]) + as.numeric(itemParameters[1,labelLambda])*theta
-plot(x = theta, y = y, type = "l", main = paste("Item", itemNumber, "ICC"), 
-     ylim=c(-2,8), xlab = expression(theta), ylab=paste("Item", itemNumber,"Predicted Value"))
-for (draw in 2:nrow(itemParameters)){
-  y = as.numeric(itemParameters[draw,labelMu]) + as.numeric(itemParameters[draw,labelLambda])*theta
+y <- as.numeric(item_pars[1,mu_lbl]) + as.numeric(item_pars[1,lambda_lbl]) * 
+theta
+plot(x = theta, y = y, type = "l", main = paste("Item", itemno, "ICC"),
+     ylim = c(-2,8), xlab = expression(theta),
+     ylab = paste("Item", itemno, "Predicted Value"))
+for (draw in 2:nrow(item_pars)) {
+  y <- as.numeric(item_pars[draw, mu_lbl]) +
+  as.numeric(item_pars[draw,lambda_lbl]) * theta
   lines(x = theta, y = y)
 }
 
 # drawing limits
-lines(x = c(-3,3), y = c(5,5), type = "l", col = 4, lwd=5, lty=2)
-lines(x = c(-3,3), y = c(1,1), type = "l", col = 4, lwd=5, lty=2)
+# ... the x-effect -- two modes, perfect reflections!
+lines(x = c(-3, 3), y = c(5, 5), type = "l", col = 4, lwd = 5, lty = 2)
+lines(x = c(-3, 3), y = c(1, 1), type = "l", col = 4, lwd = 5, lty = 2)
 
 # drawing EAP line
-y = itemSummary$mean[which(itemSummary$variable==labelMu)] + 
-  itemSummary$mean[which(itemSummary$variable==labelLambda)]*theta
-lines(x = theta, y = y, lwd = 5, lty=3, col=2)
+# drawing EAP line
+y <- item_summary$mean[which(item_summary$variable == mu_lbl)] + 
+  item_summary$mean[which(item_summary$variable == lambda_lbl)] * theta
+lines(x = theta, y = y, lwd = 5, lty = 3, col = 2)
 
 # legend
 legend(x = -3, y = 7, legend = c("Posterior Draw", "Item Limits", "EAP"), col = c(1,4,2), lty = c(1,2,3), lwd=5)
-
 
 # alternative strategy for ensuring convergence to single mode of data: =========
 
 # initial problem chains:
 
 # checking convergence
-max(modelCFA_samplesFail$summary()$rhat, na.rm = TRUE)
+max(fit_failedcfa$summary()$rhat, na.rm = TRUE)
 
 # item parameter results
-print(modelCFA_samplesFail$summary(variables = c("mu", "lambda", "psi")) ,n=Inf)
+print(fit_failedcfa$summary(variables = c("mu", "lambda", "psi")) ,n = Inf)
+
+#
+# Stop
+# Failed below!
+#
 
 # set starting values for some of the parameters
 # here, we are examining what the starting values were by running a very small chain without warmup
-modelCFA_samples2starting = modelCFA_stan$sample(
-  data = modelCFA_data,
+fit_newstartcfa <- mdl_cfa$sample(
+  data = stanls_cfa,
   seed = 25102022,
   chains = 1,
   parallel_chains = 1,
   iter_warmup = 0,
-  iter_sampling = 10, 
-  init = function() list(lambda=rnorm(nItems, mean=10, sd=1)), 
+  iter_sampling = 10,
+  # Random starting values for lambda
+  init = function() list(lambda = rnorm(I, mean = 10, sd = 1)), 
   adapt_engaged = FALSE
 )
 
