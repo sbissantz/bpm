@@ -3,13 +3,17 @@
 # data #
 ########
 
+library(cmdstanr)
+library(bayesplot)
+
 # model the belief in conspiracy theories
 # assuming a normal distribution for the data
-conspiracy_data <- read.csv("conspiracies.csv")
+conspiracy_data <- read.csv("./data/conspiracies.csv")
 
+#03_MCMC_and_Stan/conspiracies.csv
 # only using the first 10 items
 # positive values mean resemble agreement
-conspiracy_items <- conspiracyData[, 1 : 10]
+conspiracy_items <- conspiracy_data[, 1 : 10]
 
 # data dimensions
 P <- nrow(conspiracy_items)
@@ -17,7 +21,8 @@ I <- ncol(conspiracy_items)
 
 # item intercept hyperparameters
 mu_mean <- 0
-mu_meanvec <- rep(0, I)
+(mu_meanvec <- rep(0, I))
+
 mu_var <- 1000
 (mu_covmat <- diag(x = mu_var, I, I))
 
@@ -58,13 +63,18 @@ data {
   int<lower=0> I;                 // number of items
   matrix[P, I] Y;                 // item responses in a matrix
 
+  // prior mean vector for coefficients
   vector[I] mu_meanvec;
+
   // prior covariance matrix for coefficients
   matrix[I, I] mu_covmat;       
+
   // prior mean vector for intercepts
   vector[I] lambda_meanvec;     
+
   // prior covariance matrix for coefficients
   matrix[I, I] lambda_covmat;   
+
   // prior rate parameter for unique standard deviations
   vector[I] psi_ratevec;      
 }
@@ -72,10 +82,13 @@ data {
 parameters {
   // the latent variables (one for each person)
   vector[P] theta;                
+
   // the item intercepts (one for each item)
   vector[I] mu;                 
+
   // the factor loadings/item discriminations (one for each item)
   vector[I] lambda;             
+
   // the unique standard deviations (one for each item)   
   vector<lower=0>[I] psi;       
 }
@@ -83,12 +96,16 @@ parameters {
 model {
   // prior for item discrimination/factor loadings
   lambda ~ multi_normal(lambda_meanvec, lambda_covmat); 
+
   // prior for item intercepts
   mu ~ multi_normal(mu_meanvec, mu_covmat);          
+
   // prior for unique standard deviations
   psi ~ exponential(psi_ratevec);
+
   // prior for latent variable (with mean/sd specified)
   theta ~ normal(0, 1); // Standardized latent variable
+
   // conditional independence of items given theta
   for (i in 1:I){                               
     Y[,i] ~ normal(mu[i] + lambda[i]*theta, psi[i]);
@@ -101,65 +118,77 @@ model {
 mdl_cfa <- cmdstan_model(stan_file = write_stan_file(fml_cfa))
 
 # Fit the model to the data
-fit_cfa = mdl_cfa$sample(
+fit_cfa <- mdl_cfa$sample(
   data = stanls_cfa,
-  seed = 09102022,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 2000,
   iter_sampling = 2000
 )
 
-#
-# STOP
-#
-
 # checking convergence
-max(modelCFA_samples$summary()$rhat, na.rm = TRUE)
+max(fit_cfa$summary()$rhat, na.rm = TRUE)
 
 # item parameter results
-print(modelCFA_samples$summary(variables = c("mu", "lambda", "psi")) ,n=Inf)
+print(fit_cfa$summary(variables = c("mu", "lambda", "psi")), n = Inf)
 
 # showing relationship between item means and mu parameters
-apply(X = conspiracyItems, MARGIN = 2, FUN = mean)
+apply(X = conspiracy_items, MARGIN = 2, FUN = mean)
 
-# investigating item parameters ================================================
-itemNumber = 10
+###################
+# Item Parameters #
+###################
 
-labelMu = paste0("mu[", itemNumber, "]")
-labelLambda = paste0("lambda[", itemNumber, "]")
-labelPsi = paste0("psi[", itemNumber, "]")
-itemParameters = modelCFA_samples$draws(variables = c(labelMu, labelLambda, labelPsi), format = "draws_matrix")
-itemSummary = modelCFA_samples$summary(variables = c(labelMu, labelLambda, labelPsi))
+# define sequence of item numbers
+# I_seq <- seq_len(I)
+I_seq <- I
+
+# define labels for item parameters
+mu_lbl <- paste0("mu[", I_seq, "]")
+lambda_lbl <- paste0("lambda[", I_seq, "]")
+psi_lbl <- paste0("psi[", I_seq, "]")
+
+# extract draws from item parameters
+item_pars <- fit_cfa$draws(variables = c(mu_lbl, lambda_lbl, psi_lbl), 
+  format = "draws_matrix")
+
+# extract summary statistics for item parameters
+(item_summary <- fit_cfa$summary(variables = c(mu_lbl, lambda_lbl, psi_lbl)))
 
 # item plot
-theta = seq(-3,3,.1) # for plotting analysis lines--x axis values
+theta <- seq(-3, 3, .1) # for plotting analysis lines--x axis values
 
 # drawing item characteristic curves for item
-y = as.numeric(itemParameters[1,labelMu]) + as.numeric(itemParameters[1,labelLambda])*theta
-plot(x = theta, y = y, type = "l", main = paste("Item", itemNumber, "ICC"), 
-     ylim=c(-2,8), xlab = expression(theta), ylab=paste("Item", itemNumber,"Predicted Value"))
-for (draw in 2:nrow(itemParameters)){
-  y = as.numeric(itemParameters[draw,labelMu]) + as.numeric(itemParameters[draw,labelLambda])*theta
+y <- as.numeric(item_pars[1, mu_lbl]) + 
+  as.numeric(item_pars[1, lambda_lbl]) * theta
+
+plot(x = theta, y = y, type = "l", main = paste("Item", I_seq, "ICC"),
+     ylim = c(-2,8), xlab = expression(theta),
+     ylab = paste("Item", I_seq, "Predicted Value"))
+for (draw in seq_len(50)){
+  y <- as.numeric(item_pars[draw, mu_lbl]) +
+        as.numeric(item_pars[draw, lambda_lbl]) * theta
   lines(x = theta, y = y)
 }
 
 # drawing limits
-lines(x = c(-3,3), y = c(5,5), type = "l", col = 4, lwd=5, lty=2)
-lines(x = c(-3,3), y = c(1,1), type = "l", col = 4, lwd=5, lty=2)
+lines(x = c(-3, 3), y = c(5, 5), type = "l", col = 4, lwd = 5, lty = 2)
+lines(x = c(-3, 3), y = c(1, 1), type = "l", col = 4, lwd = 5, lty = 2)
 
 # drawing EAP line
-y = itemSummary$mean[which(itemSummary$variable==labelMu)] + 
-  itemSummary$mean[which(itemSummary$variable==labelLambda)]*theta
-lines(x = theta, y = y, lwd = 5, lty=3, col=2)
+y <- item_summary$mean[which(item_summary$variable == mu_lbl)] + 
+  item_summary$mean[which(item_summary$variable == lambda_lbl)] * theta
+lines(x = theta, y = y, lwd = 5, lty = 3, col = 2)
 
-mcmc_dens(modelCFA_samples$draws(variables = "lambda[10]"))
+mcmc_dens(fit_cfa$draws(variables = "lambda[10]"))
 
 # legend
-legend(x = -3, y = 7, legend = c("Posterior Draw", "Item Limits", "EAP"), col = c(1,4,2), lty = c(1,2,3), lwd=5)
+legend(x = -3, y = 7, legend = c("Posterior Draw", "Item Limits", "EAP"), 
+col = c(1,4,2), lty = c(1,2,3), lwd=5)
 
-plot(x=itemParameters[,1], y=itemParameters[,2])
-cor(x=itemParameters[,1], y=itemParameters[,2])
+plot(x = item_pars[, 1], y = itemParameters[, 2])
+cor(x = item_pars[, 1], y = itemParameters[, 2])
 
 # investigating latent variables
 
