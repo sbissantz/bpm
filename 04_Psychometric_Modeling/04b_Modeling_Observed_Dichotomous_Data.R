@@ -1,274 +1,140 @@
 
-########
-# data #
-########
+#########
+# setup #
+#########
 
 library(cmdstanr)
 library(bayesplot)
 library(ggplot2)
 
+# set number of cores to 4 for this analysis
+options(mc.cores = 4)
+
+########
+# data #
+########
+
 # model the belief in conspiracy theories
-# assuming a normal distribution for the data
+# assuming a normal binomial p.d. for the data
 conspiracy_data <- read.csv("./data/conspiracies.csv")
 
-#03_MCMC_and_Stan/conspiracies.csv
 # only using the first 10 items
 # positive values mean resemble agreement
 conspiracy_items <- conspiracy_data[, 1 : 10]
 
-# data dimensions
-P <- nrow(conspiracy_items)
+# Number of items 
 I <- ncol(conspiracy_items)
 
-# item intercept hyperparameters
-mu_mean <- 0
-(mu_meanvec <- rep(0, I))
-
-mu_var <- 1000
-(mu_covmat <- diag(x = mu_var, I, I))
-
-# item discrimination/factor loading hyperparameters
-lambda_mean <- 0
-(lambda_meanvec <- rep(lambda_mean, I, I))
-
-lambda_var <- 1000
-(lambda_covmat <- diag(x = lambda_var, I, I))
-
-# unique standard deviation hyperparameters
-psi_rate <- .01
-psi_ratevec <- rep(psi_rate, I)
-
-#############
-# stan list #
-#############
-
-stanls_cfa <- list(
-  "P" = P,
-  "I" = I,
-  "Y" = conspiracy_items,
-  "mu_meanvec" = mu_meanvec,
-  "mu_covmat" = mu_covmat,
-  "lambda_meanvec" = lambda_meanvec,
-  "lambda_covmat" = lambda_covmat,
-  "psi_ratevec" = psi_ratevec
-)
-
-#######
-# cfa #
-#######
-
-fml_cfa <- "
-
-data {
-  int<lower=0> P;                 // number of observations
-  int<lower=0> I;                 // number of items
-  matrix[P, I] Y;                 // item responses in a matrix
-
-  // prior mean vector for coefficients
-  vector[I] mu_meanvec;
-
-  // prior covariance matrix for coefficients
-  matrix[I, I] mu_covmat;       
-
-  // prior mean vector for intercepts
-  vector[I] lambda_meanvec;     
-
-  // prior covariance matrix for coefficients
-  matrix[I, I] lambda_covmat;   
-
-  // prior rate parameter for unique standard deviations
-  vector[I] psi_ratevec;      
+# NEVER DO THIS IN PRACTICE!
+# converting to dichotomous responses
+# here 0 == strongly disagree or disagree;
+# 1 == neither, agree, and strongly disagree
+items_bin <- conspiracy_items
+for (var in seq_len(10)) {
+  items_bin[which(items_bin[, var] <= 3), var] = 0
+  items_bin[which(items_bin[, var] > 3), var] = 1
 }
 
-parameters {
-  // the latent variables (one for each person)
-  vector[P] theta;                
+# examining data after transformation
+table(items_bin$PolConsp1, items_bin$PolConsp1)
 
-  // the item intercepts (one for each item)
-  vector[I] mu;                 
+# item means
+apply(X = items_bin, MARGIN = 2, FUN = mean)
 
-  // the factor loadings/item discriminations (one for each item)
-  vector[I] lambda;             
+#################################
+# example: Likelihood Functions #
+#################################
 
-  // the unique standard deviations (one for each item)   
-  vector<lower=0>[I] psi;       
+# number of respondents
+P <- nrow(items_bin)
+
+# examine the data likelihood for the factor loading of the 1st item, lambda_1
+
+# We have the jont p.m.f. f(Y_p| lambda_1, mu_1 theta_p)
+# We fix mu_1 and theta_p
+# ...for lambda1
+mu1 <- -2 # fix
+theta <- rnorm(P, 0, 1) # fix
+
+# Assuming that observations are independent
+# f(Y_p| lambda_1, theta_p) = prod_{p=1}^{P} f(Y_p| lambda_1, theta_p)
+
+# We let the loadings vary, to find the maximum (likelihood estimate)
+lambda <- seq(-2, 2, .01) # Loadings
+log_lik <- vector("numeric", I)
+
+# par <- 1 # for demonstrating
+for (par in seq_along(lambda)) {
+  # calculate the log-odd or logits
+  logit <- mu1 + lambda[par] * theta
+  # Convert to probability
+  p <- exp(logit) / (1 + exp(logit))
+  # Plug the probability into the binomial p.m.f.
+  # The product becomes a sum because of the log: log-likelihood
+  LL_bern <- sum(dbinom(items_bin$PolConsp1, 1, p, log = TRUE))
+  log_lik[par] <- LL_bern
 }
 
-model {
-  // prior for item discrimination/factor loadings
-  lambda ~ multi_normal(lambda_meanvec, lambda_covmat); 
+# visualize
+plot(x = lambda, y = log_lik, type = "l")
 
-  // prior for item intercepts
-  mu ~ multi_normal(mu_meanvec, mu_covmat);          
+# examine the data likelihood for latent trait of the 2nd person, lambda_1
 
-  // prior for unique standard deviations
-  psi ~ exponential(psi_ratevec);
+# We have the jont p.m.f. f(Y_p| lambda_1, mu_1 theta_p)
+# We fix mu and lambda 
+# .... for theta2
+mu <- runif(I, -2, 0) # fix
+lambda <- runif(I, 0, 2) # fix
+person <- 2 # fix
 
-  // prior for latent variable (with mean/sd specified)
-  theta ~ normal(0, 1); // Standardized latent variable
+theta <- seq(-3, 3, .01)
+log_lik <- NULL
+LL_theta <- vector("numeric", P)
 
-  // conditional independence of items given theta
-  for (i in 1:I){                               
-    Y[,i] ~ normal(mu[i] + lambda[i]*theta, psi[i]);
+par <- 1 # for demonstrating
+for (par in seq_along(theta)) {
+  for (i in seq_along(I)){
+    logit <- mu[i] + lambda[i] * theta[par]
+    p <- exp(logit) / (1 + exp(logit))
+    LL_theta <- dbinom(items_bin[person, i], 1, p, log = TRUE)
+    log_lik[par] <- LL_theta
   }
 }
 
-"
+# Visualize
+plot(x = theta, y = log_lik, type = "l")
 
-# compile stan code into executable
-mdl_cfa <- cmdstan_model(stan_file = write_stan_file(fml_cfa))
+# IRT Model Syntax (slope/intercept form )
 
-# Fit the model to the data
-fit_cfa <- mdl_cfa$sample(
-  data = stanls_cfa,
-  seed = 112,
-  chains = 4,
-  parallel_chains = 4,
-  iter_warmup = 2000,
-  iter_sampling = 2000
-)
-
-# checking convergence
-max(fit_cfa$summary()$rhat, na.rm = TRUE)
-
-# item parameter results
-print(fit_cfa$summary(variables = c("mu", "lambda", "psi")), n = Inf)
-
-# showing relationship between item means and mu parameters
-apply(X = conspiracy_items, MARGIN = 2, FUN = mean)
-
-###################
-# item parameters #
-###################
-
-# define sequence of item numbers
-# I_seq <- seq_len(I)
-I_seq <- I
-
-# define labels for item parameters
-mu_lbl <- paste0("mu[", I_seq, "]")
-lambda_lbl <- paste0("lambda[", I_seq, "]")
-psi_lbl <- paste0("psi[", I_seq, "]")
-
-# extract draws from item parameters
-item_pars <- fit_cfa$draws(variables = c(mu_lbl, lambda_lbl, psi_lbl), 
-  format = "draws_matrix")
-
-# extract summary statistics for item parameters
-(item_summary <- fit_cfa$summary(variables = c(mu_lbl, lambda_lbl, psi_lbl)))
-
-# item plot
-theta <- seq(-3, 3, .1) # for plotting analysis lines--x axis values
-
-# drawing item characteristic curves for item
-# E(theta|Y) 
-y <- as.numeric(item_pars[1, mu_lbl]) + 
-  as.numeric(item_pars[1, lambda_lbl]) * theta
-
-plot(x = theta, y = y, type = "l", main = paste("Item", I_seq, "ICC"),
-     ylim = c(-2,8), xlab = expression(theta),
-     ylab = paste("Item", I_seq, "Predicted Value"))
-for (draw in seq_len(50)){
-  y <- as.numeric(item_pars[draw, mu_lbl]) +
-        as.numeric(item_pars[draw, lambda_lbl]) * theta
-  lines(x = theta, y = y)
-}
-# drawing limits
-lines(x = c(-3, 3), y = c(5, 5), type = "l", col = 4, lwd = 5, lty = 2)
-lines(x = c(-3, 3), y = c(1, 1), type = "l", col = 4, lwd = 5, lty = 2)
-# drawing EAP line
-y <- item_summary$mean[which(item_summary$variable == mu_lbl)] + 
-  item_summary$mean[which(item_summary$variable == lambda_lbl)] * theta
-lines(x = theta, y = y, lwd = 5, lty = 3, col = 2)
-
-# multimodality (2 separate modes)
-mcmc_dens(fit_cfa$draws(variables = "lambda[10]"))
-# legend
-legend(x = -3, y = 7, legend = c("Posterior Draw", "Item Limits", "EAP"), 
-col = c(1,4,2), lty = c(1,2,3), lwd=5)
-
-
-# multimodality (2 separate modes)
-plot(x = item_pars[, 1], y = item_pars[, 2])
-cor(x = item_pars[, 1], y = item_pars[, 2])
-
-# investigating latent variables
-
-#results
-print(fit_cfa$summary(variables = c("theta")), n = Inf)
-# Almost all parameter estimates are shrunk towards zero
-
-# EAP distribution
-hist(fit_cfa$summary(variables = c("theta"))$mean, 
-main = "EAP Estimates of Theta", xlab = expression(theta))
-# All the values center around zero (multimodality)
-
-plot(density(fit_cfa$summary(variables = c("theta"))$mean), 
-main = "EAP Estimates of Theta", xlab = expression(theta))
-# All the values center around zero (multimodality)
-
-# Density of All Posterior Draws
-theta <- fit_cfa$draws(variables = c("theta"), format = "draws_matrix")
-theta_vec <- c(theta)
-hist(theta_vec)
-
-# plotting two theta distributions side-by-side
-theta1 <- "theta[1]"
-theta2 <- "theta[2]"
-theta_draws <- fit_cfa$draws(variables = c(theta1, theta2), format = "draws_matrix")
-theta_vec <- rbind(theta_draws[,1], theta_draws[,2])
-theta_df <- data.frame(observation = c(rep(theta1, nrow(theta_draws)), rep(theta2, nrow(theta_draws))), 
-sample = theta_vec)
-  rep(theta1, nrow(theta_draws), sample = theta_vec)
-names(theta_df) <- c("observation", "sample")
-ggplot(theta_df, aes(x = sample, fill = observation)) + 
-  geom_density(alpha = 0.25)
-# The resulting distribution is a result of combining the two
-# distributions of theta[1] and theta[2]
-
-# comparing EAP estimates with posterior SDs
-plot(y = fit_cfa$summary(variables = c("theta"))$sd, 
-x = fit_cfa$summary(variables = c("theta"))$mean,
-     xlab = "E(theta|Y)", ylab = "SD(theta|Y)")
-# BOOM!
-# under normal theory we would expect a line (constant), because
-# ...but this is clearly not the case here
-# we use the same standard deviation (fixed); but allowing for
-# variation in a clearly nonlinear pattern emerges
-
-## comparing EAP estimates with sum scores
-plot(x = rowSums(conspiracy_items), 
-y = fit_cfa$summary(variables = c("theta"))$mean,
-     xlab = "Sum Score", ylab = expression(theta))
-
-# Estimating Theta with fixed item parameters
-lambda_eap <- fit_cfa$summary(variables = "lambda")$mean
-mu_eap <- fit_cfa$summary(variables = "mu")$mean
-psi_eap <- fit_cfa$summary(variables = "psi")$mean
-
-# Stan syntax
-fml_fixedcfa <- "
+fml_IRT_2PL_SI = "
 
 data {
-  int<lower=0> P;                 // number of observations
-  int<lower=0> I;               // number of items
-  matrix[P, I] Y;            // item responses in a matrix
+  int<lower=0> P;                            // number of observations
+  int<lower=0> I;                          // number of items
+  array[I, P] int<lower=0, upper=1>  Y; // item responses in an array
 
-  vector[I] mu_eap;        // (fixed) EAP estimates of item intercepts
-  vector[I] lambda_eap;   // (fixed) EAP estimates of item loadings
-  vector[I] psi_eap;      // (fixed) EAP estimates of unique sd
+  vector[I] mu_mean;             // prior mean vector for intercept parameters
+  matrix[I, I] Mu_cov;      // prior covariance matrix for intercept parameters
+  
+  vector[I] lambda_mean;    // prior mean vector for discrimination parameters
+  matrix[I, I] Lambda_cov;  // prior covariance matrix for discrimination parameters
 }
 
 parameters {
   vector[P] theta;                // the latent variables (one for each person)
+  vector[I] mu;                 // the item intercepts (one for each item)
+  vector[I] lambda;             // the factor loadings/item discriminations (one for each item)
 }
 
 model {
   
-  theta ~ normal(0, 1);        // prior for latent variable (mean/sd specified)
+  lambda ~ multi_normal(lambda_mean, Lambda_cov); // Prior for item discrimination/factor loadings
+  mu ~ multi_normal(mu_mean, Mu_cov);             // Prior for item intercepts
   
-  for (item in 1:I){
-    Y[,item] ~ normal(mu_eap[item] + lambda_eap[item]*theta, psi_eap[item]);
+  theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
+  
+  for (i in 1:I){
+    Y[i] ~ bernoulli_logit(mu[i] + lambda[i]*theta);
   }
   
 }
@@ -276,197 +142,757 @@ model {
 "
 
 # compile model
-mdl_fixedcfa <- cmdstan_model(stan_file = write_stan_file(fml_fixedcfa))
+mdl_2PL_SI <- cmdstan_model(stan_file = write_stan_file(fml_IRT_2PL_SI))
+
+# data dimensions
+P <- nrow(conspiracy_items)
+I <- ncol(conspiracy_items)
+
+# item intercept hyperparameters
+mu_mean_hp <- 0
+mu_mean <- rep(mu_mean_hp, I)
+
+mu_var_hp <- 1000
+Mu_cov <- diag(mu_var_hp, I)
+
+# item discrimination/factor loading hyperparameters
+lambda_mean_hp <- 0
+lambda_mean <- rep(lambda_mean_hp, I)
+
+lambda_var_hp <- 1000
+Lambda_cov <- diag(lambda_var_hp, I)
+
+#############
+# stan list #
+#############
 
 # build r list for stan
-stanls_fixedcfa <- list(
-  P = P,
-  I = I,
-  Y = conspiracy_items,
-  mu_eap = mu_eap,
-  lambda_eap = lambda_eap,
-  psi_eap = psi_eap
+stanls_2PL_SI <- list(
+  "P" = P,
+  "I" = I,
+  # Important transpose (array in stan are in row major order)
+  "Y" = t(items_bin),
+  "mu_mean" = mu_mean,
+  "Mu_cov" = Mu_cov,
+  "lambda_mean" = lambda_mean,
+  "Lambda_cov" = Lambda_cov 
 )
 
 # run MCMC chain (sample from posterior p.d.)
-# note run very long chain to get a fine resolution of the tails
-fit_fixedcfa <- mdl_fixedcfa$sample(
-  data = stanls_fixedcfa,
-  seed = 112,
+fit_2PL_SI <- mdl_2PL_SI$sample(
+  data = stanls_2PL_SI,
+  seed = 02112022,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 5000,
-  iter_sampling = 50000
+  iter_sampling = 5000,
+  # Mean should be below 10, since the log of it is too large
+  init = function() list(lambda = rnorm(I, mean = 5, sd = 1))
 )
 
-# extracting fixed person parameter results
-fixedItems_ThetaMeans <- fit_fixedcfa$summary(variables = c("theta"))$mean
-fixedItems_ThetaSDs <- fit_fixedcfa$summary(variables = c("theta"))$sd
-
-plot(y = fixedItems_ThetaSDs,
-     x = fixedItems_ThetaMeans,
-     xlab = "E(theta|Y)", ylab = "SD(theta|Y)",
-     ylim = c(0, 1))
-
-# extracting person parameter (estimated) 
-estimatedItems_ThetaMeans <- fit_cfa$summary(variables = c("theta"))$mean
-estimatedItems_ThetaSDs <- fit_cfa$summary(variables = c("theta"))$sd
-
-plot(y = estimatedItems_ThetaMeans,
-     x = fixedItems_ThetaMeans,
-     xlab = "Fixed Item Parameters", ylab = "Estimated Item Parameters", 
-     main = "EAP Theta Estimates")
-# Mean is almost perfectly covered, BUT...
-# Mean is a stable quantitiy
-
-plot(y = estimatedItems_ThetaSDs,
-     x = fixedItems_ThetaSDs,
-     xlab = "Fixed Item Parameters", ylab = "Estimated Item Parameters", 
-     main = "Theta Posterior SDs")
-#....the SDs are not
-
-# With estimates fixed at the EAP values, we dramatically overstate
-# our certainty in the estimates of theta, especially with a small sample size 
-# Put another our uncertainty in the itemparameters does not translate to 
-# uncertainty in the person parameters!
-
-#####################
-# Convergence Fails #
-#####################
-
-fit_failedcfa <- mdl_cfa$sample(
-  data = stanls_cfa,
-  seed = 25102022,
-  chains = 4,
-  parallel_chains = 4,
-  iter_warmup = 2000,
-  iter_sampling = 2000
-)
+# assess convergence: summary of all parameters
+fit_2PL_SI$summary()
+fit_2PL_SI$cmdstan_diagnose()
+fit_2PL$diagnostic_summary()
 
 # checking convergence
-max(fit_failedcfa$summary()$rhat, na.rm = TRUE)
+max(fit_2PL_SI$summary()$rhat, na.rm = TRUE)
 
 # item parameter results
-print(fit_failedcfa$summary(variables = c("mu", "lambda", "psi")), n=Inf)
+print(fit_2PL_SI$summary(variables = c("mu", "lambda")), n = Inf)
 
-# person parameter results
-print(fit_failedcfa$summary(variables = c("theta")), n = Inf)
 
-# plotting trace
-mcmc_trace(fit_failedcfa$draws(variables = "lambda"))
-# Two separated modes! Three chains are stuck in one mode, one in the other
 
-# plotting densities
-mcmc_dens(fit_failedcfa$draws(variables = "lambda"))
-mcmc_dens(fit_failedcfa$draws(variables = c("theta[1]", "theta[2]", "theta[3]")))
-# Two separated modes! Three chains are stuck in one mode, one in the other
+###################
+# Item parameters #
+###################
 
-# investigating item parameters
-itemno <- 3
+itemNumber = 5
 
-mu_lbl <- paste0("mu[", itemno, "]")
-lambda_lbl <- paste0("lambda[", itemno, "]")
-psi_lbl <- paste0("psi[", itemno, "]")
-item_pars <- failedcfa$draws(variables = c(mu_lbl, lambda_lbl, psi_lbl), 
-format <- "draws_matrix")
-item_summary <- failed_cfa$summary(variables = c(mu_lbl, lambda_lbl, psi_lbl))
+labelMu = paste0("mu[", itemNumber, "]")
+labelLambda = paste0("lambda[", itemNumber, "]")
+itemParameters <- fit_2PL_SI$draws(variables = c(labelMu, labelLambda), 
+format = "draws_matrix")
+itemSummary <- fit_2PL_SI$summary(variables = c(labelMu, labelLambda))
 
 # item plot
-theta <- seq(-3, 3, .1) # for plotting analysis lines--x axis values
- 
+theta = seq(-3,3,.1) # for plotting analysis lines--x axis values
+
 # drawing item characteristic curves for item
-y <- as.numeric(item_pars[1,mu_lbl]) + as.numeric(item_pars[1,lambda_lbl]) * 
-theta
-plot(x = theta, y = y, type = "l", main = paste("Item", itemno, "ICC"),
-     ylim = c(-2,8), xlab = expression(theta),
-     ylab = paste("Item", itemno, "Predicted Value"))
-for (draw in 2:nrow(item_pars)) {
-  y <- as.numeric(item_pars[draw, mu_lbl]) +
-  as.numeric(item_pars[draw,lambda_lbl]) * theta
+logit = as.numeric(itemParameters[1,labelMu]) + as.numeric(itemParameters[1,labelLambda])*theta
+y = exp(logit)/(1+exp(logit))
+plot(x = theta, y = y, type = "l", main = paste("Item", itemNumber, "ICC"), 
+     ylim=c(0,1), xlab = expression(theta), ylab=paste("Item", itemNumber, "Predicted Value"))
+
+for (draw in 2:nrow(itemParameters)){
+  logit = as.numeric(itemParameters[draw,labelMu]) + as.numeric(itemParameters[draw,labelLambda])*theta
+  y = exp(logit)/(1+exp(logit))
   lines(x = theta, y = y)
 }
 
-# drawing limits
-# ... the x-effect -- two modes, perfect reflections!
-lines(x = c(-3, 3), y = c(5, 5), type = "l", col = 4, lwd = 5, lty = 2)
-lines(x = c(-3, 3), y = c(1, 1), type = "l", col = 4, lwd = 5, lty = 2)
+#
+# TODO: Same possible with r.v. from posterior package ?
+#
+
+###################
+# Item parameters #
+###################
+
+# Extract posterior draws
+draws <- posterior::as_draws_rvars(fit_2PL_SI$draws())
+
+# item plot
+theta <- seq(-3, 3, .1) # for plotting analysis lines--x axis values
+
+draws$logit <- draws$mu + draws$lambda * t(draws$theta)
+
+# Cannot use logistic function directly, because of the rvar data type
+draws$y <- exp(draws$logit) / (1 + exp(draws$logit))
+
+
+# drawing item characteristic curves for item
+plot(x = mean(draws$theta), y = mean(draws$y[1,]), type = "l", main = paste("Item", itemNumber, "ICC"), 
+     ylim=c(0,1), xlab = expression(theta), ylab=paste("Item", itemNumber, "Predicted Value"))
+
+for (draw in 2:nrow(itemParameters)){
+  logit = as.numeric(itemParameters[draw,labelMu]) + as.numeric(itemParameters[draw,labelLambda])*theta
+  y = exp(logit)/(1+exp(logit))
+  lines(x = theta, y = y)
+}
+
+
+
+# ----------------------------------------------------------------------------
+
+
+
+
 
 # drawing EAP line
-# drawing EAP line
-y <- item_summary$mean[which(item_summary$variable == mu_lbl)] + 
-  item_summary$mean[which(item_summary$variable == lambda_lbl)] * theta
-lines(x = theta, y = y, lwd = 5, lty = 3, col = 2)
+logit = itemSummary$mean[which(itemSummary$variable==labelMu)] + 
+  itemSummary$mean[which(itemSummary$variable==labelLambda)]*theta
+y = exp(logit)/(1+exp(logit))
+lines(x = theta, y = y, lwd = 5, lty=3, col=2)
 
 # legend
-legend(x = -3, y = 7, legend = c("Posterior Draw", "Item Limits", "EAP"), col = c(1,4,2), lty = c(1,2,3), lwd=5)
+legend(x = -3, y = 1, legend = c("Posterior Draw", "EAP"), col = c(1,2), lty = c(1,3), lwd=5)
 
-# alternative strategy for ensuring convergence to single mode of data: =========
+# investigating item parameters
+mcmc_trace(modelIRT_2PL_SI_samples$draws(variables = "mu"))
+mcmc_dens(modelIRT_2PL_SI_samples$draws(variables = "mu"))
 
-# initial problem chains:
+mcmc_trace(modelIRT_2PL_SI_samples$draws(variables = "lambda"))
+mcmc_dens(modelIRT_2PL_SI_samples$draws(variables = "lambda"))
+
+# bivariate posterior distributions
+itemNum = 1
+muLabel = paste0("mu[", itemNum, "]")
+lambdaLabel = paste0("lambda[", itemNum, "]")
+mcmc_pairs(modelIRT_2PL_SI_samples$draws(), pars = c(muLabel, lambdaLabel))
+
+# investigating the latent variables:
+print(modelIRT_2PL_SI_samples$summary(variables = "theta") ,n=Inf)
+
+
+# EAP Estimates of Latent Variables
+
+hist(modelIRT_2PL_SI_samples$summary(variables = c("theta"))$mean, main="EAP Estimates of Theta", 
+     xlab = expression(theta))
+
+# Comparing Two Posterior Distributions
+theta1 = "theta[1]"
+theta2 = "theta[2]"
+thetaSamples = modelIRT_2PL_SI_samples$draws(variables = c(theta1, theta2), format = "draws_matrix")
+thetaVec = rbind(thetaSamples[,1], thetaSamples[,2])
+thetaDF = data.frame(observation = c(rep(theta1,nrow(thetaSamples)), rep(theta2, nrow(thetaSamples))), 
+                     sample = thetaVec)
+names(thetaDF) = c("observation", "sample")
+ggplot(thetaDF, aes(x=sample, fill=observation)) +geom_density(alpha=.25)
+
+# Comparing EAP Estimates with Posterior SDs
+
+plot(y = modelIRT_2PL_SI_samples$summary(variables = c("theta"))$sd, 
+     x = modelIRT_2PL_SI_samples$summary(variables = c("theta"))$mean,
+     xlab = "E(theta|Y)", ylab = "SD(theta|Y)", main="Mean vs SD of Theta")
+
+# Comparing EAP Estimates with Sum Scores
+plot(y = rowSums(conspiracyItemsDichtomous), x = modelIRT_2PL_SI_samples$summary(variables = c("theta"))$mean,
+     ylab = "Sum Score", xlab = expression(theta))
+
+
+# IRT Model Syntax (slope/intercept form with discrimination/difficulty calculated) ===========
+
+
+modelIRT_2PL_SI2_syntax = "
+
+data {
+  int<lower=0> nObs;                            // number of observations
+  int<lower=0> nItems;                          // number of items
+  array[nItems, nObs] int<lower=0, upper=1>  Y; // item responses in an array
+
+  vector[nItems] meanMu;             // prior mean vector for intercept parameters
+  matrix[nItems, nItems] covMu;      // prior covariance matrix for intercept parameters
+  
+  vector[nItems] meanLambda;         // prior mean vector for discrimination parameters
+  matrix[nItems, nItems] covLambda;  // prior covariance matrix for discrimination parameters
+}
+
+parameters {
+  vector[nObs] theta;                // the latent variables (one for each person)
+  vector[nItems] mu;                 // the item intercepts (one for each item)
+  vector[nItems] lambda;             // the factor loadings/item discriminations (one for each item)
+}
+
+model {
+  
+  lambda ~ multi_normal(meanLambda, covLambda); // Prior for item discrimination/factor loadings
+  mu ~ multi_normal(meanMu, covMu);             // Prior for item intercepts
+  
+  theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
+  
+  for (item in 1:nItems){
+    Y[item] ~ bernoulli_logit(mu[item] + lambda[item]*theta);
+  }
+  
+}
+
+generated quantities{
+  vector[nItems] a;
+  vector[nItems] b;
+  
+  for (item in 1:nItems){
+    a[item] = lambda[item];
+    b[item] = -1*mu[item]/lambda[item];
+  }
+  
+}
+
+"
+
+modelIRT_2PL_SI2_stan = cmdstan_model(stan_file = write_stan_file(modelIRT_2PL_SI2_syntax))
+
+
+modelIRT_2PL_SI2_samples = modelIRT_2PL_SI2_stan$sample(
+  data = modelIRT_2PL_SI_data,
+  seed = 02112022,
+  chains = 4,
+  parallel_chains = 4,
+  iter_warmup = 5000,
+  iter_sampling = 5000,
+  init = function() list(lambda=rnorm(nItems, mean=5, sd=1))
+)
 
 # checking convergence
-max(fit_failedcfa$summary()$rhat, na.rm = TRUE)
+max(modelIRT_2PL_SI2_samples$summary()$rhat, na.rm = TRUE)
 
 # item parameter results
-print(fit_failedcfa$summary(variables = c("mu", "lambda", "psi")) ,n = Inf)
+print(modelIRT_2PL_SI2_samples$summary(variables = c("a", "b")) ,n=Inf)
 
-#
-# Stop
-# Failed below!
-#
+# IRT Model Syntax (discrimination/difficulty form ) ==================================================
 
-# set starting values for some of the parameters
-# here, we are examining what the starting values were by running a very small chain without warmup
-fit_newstartcfa <- mdl_cfa$sample(
-  data = stanls_cfa,
-  seed = 25102022,
-  chains = 1,
-  parallel_chains = 1,
-  iter_warmup = 0,
-  iter_sampling = 10,
-  # Random starting values for lambda
-  init = function() list(lambda = rnorm(I, mean = 10, sd = 1)), 
-  adapt_engaged = FALSE
+modelIRT_2PL_DD_syntax = "
+
+data {
+  int<lower=0> nObs;                 // number of observations
+  int<lower=0> nItems;               // number of items
+  array[nItems, nObs] int<lower=0, upper=1>  Y; // item responses in a matrix
+
+  vector[nItems] meanA;
+  matrix[nItems, nItems] covA;      // prior covariance matrix for coefficients
+  
+  vector[nItems] meanB;         // prior mean vector for coefficients
+  matrix[nItems, nItems] covB;  // prior covariance matrix for coefficients
+}
+
+parameters {
+  vector[nObs] theta;                // the latent variables (one for each person)
+  vector[nItems] a;                 // the item intercepts (one for each item)
+  vector[nItems] b;             // the factor loadings/item discriminations (one for each item)
+}
+
+model {
+  
+  a ~ multi_normal(meanA, covA); // Prior for item discrimination/factor loadings
+  b ~ multi_normal(meanB, covB);             // Prior for item intercepts
+  
+  theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
+  
+  for (item in 1:nItems){
+    Y[item] ~ bernoulli_logit(a[item]*(theta - b[item]));
+  }
+  
+}
+
+generated quantities{
+  vector[nItems] lambda;
+  vector[nItems] mu;
+  
+  lambda = a;
+  for (item in 1:nItems){
+    mu[item] = -1*a[item]*b[item];
+  }
+}
+
+"
+
+modelIRT_2PL_DD_stan = cmdstan_model(stan_file = write_stan_file(modelIRT_2PL_DD_syntax))
+
+# data dimensions
+nObs = nrow(conspiracyItems)
+nItems = ncol(conspiracyItems)
+
+# item intercept hyperparameters
+bMeanHyperParameter = 0
+bMeanVecHP = rep(bMeanHyperParameter, nItems)
+
+bVarianceHyperParameter = 1000
+bCovarianceMatrixHP = diag(x = bVarianceHyperParameter, nrow = nItems)
+
+# item discrimination/factor loading hyperparameters
+aMeanHyperParameter = 0
+aMeanVecHP = rep(aMeanHyperParameter, nItems)
+
+aVarianceHyperParameter = 1000
+aCovarianceMatrixHP = diag(x = aVarianceHyperParameter, nrow = nItems)
+
+modelIRT_2PL_DD_data = list(
+  nObs = nObs,
+  nItems = nItems,
+  Y = t(conspiracyItemsDichtomous), 
+  meanB = bMeanVecHP,
+  covB = bCovarianceMatrixHP,
+  meanA = aMeanVecHP,
+  covA = aCovarianceMatrixHP
 )
 
-modelCFA_samples2starting$draws(variables = "lambda", format = "draws_matrix")
-
-# now we can see the sampling work (with limited warmup)
-modelCFA_samples2nowarmup = modelCFA_stan$sample(
-  data = modelCFA_data,
-  seed = 25102022,
+modelIRT_2PL_DD_samples = modelIRT_2PL_DD_stan$sample(
+  data = modelIRT_2PL_DD_data,
+  seed = 02112022,
   chains = 4,
   parallel_chains = 4,
-  iter_warmup = 10,
-  iter_sampling = 2000, 
-  init = function() list(lambda=rnorm(nItems, mean=10, sd=2))
+  iter_warmup = 5000,
+  iter_sampling = 5000,
+  init = function() list(a=rnorm(nItems, mean=5, sd=1))
 )
 
-mcmc_trace(modelCFA_samples2nowarmup$draws(variables = "lambda"))
+# checking convergence
+max(modelIRT_2PL_DD_samples$summary()$rhat, na.rm = TRUE)
 
-View(modelCFA_samples2nowarmup$draws(variables = "lambda", format = "draws_matrix"))
+# item parameter results
+print(modelIRT_2PL_DD_samples$summary(variables = c("a", "b")) ,n=Inf)
 
-# now we can see the sampling work (with limited warmup)
-modelCFA_samples2fixed = modelCFA_stan$sample(
-  data = modelCFA_data,
-  seed = 25102022,
+# comparing with other parameters estimated:
+plot(x = modelIRT_2PL_DD_samples$summary(variables = c("b"))$mean,
+     y = modelIRT_2PL_SI2_samples$summary(variables = c("b"))$mean,
+     xlab = "Discrimination/Difficulty Model", 
+     ylab = "Slope/Intercept Model",
+     main = "Difficulty Parameter EAP Estimates"
+)
+
+# comparing with other parameters estimated:
+plot(x = modelIRT_2PL_DD_samples$summary(variables = c("a"))$mean,
+     y = modelIRT_2PL_SI2_samples$summary(variables = c("a"))$mean,
+     xlab = "Discrimination/Difficulty Model", 
+     ylab = "Slope/Intercept Model",
+     main = "Discrimination Parameters EAP Estimates"
+)
+
+# theta results
+# comparing with other parameters estimated:
+plot(x = modelIRT_2PL_DD_samples$summary(variables = c("theta"))$mean,
+     y = modelIRT_2PL_SI2_samples$summary(variables = c("theta"))$mean,
+     xlab = "Discrimination/Difficulty Model", 
+     ylab = "Slope/Intercept Model",
+     main = "Theta EAP Estimates"
+)
+
+# comparing with other parameters estimated:
+plot(x = modelIRT_2PL_DD_samples$summary(variables = c("theta"))$sd,
+     y = modelIRT_2PL_SI2_samples$summary(variables = c("theta"))$sd,
+     xlab = "Discrimination/Difficulty Model", 
+     ylab = "Slope/Intercept Model",
+     main = "Theta SD Estimates"
+)
+
+
+# IRT Auxiliary Statistics ===========================================================
+
+modelIRT_2PL_DD2_syntax = "
+
+data {
+  int<lower=0> nObs;                 // number of observations
+  int<lower=0> nItems;               // number of items
+  array[nItems, nObs] int<lower=0, upper=1>  Y; // item responses in a matrix
+
+  vector[nItems] meanA;
+  matrix[nItems, nItems] covA;      // prior covariance matrix for coefficients
+  
+  vector[nItems] meanB;         // prior mean vector for coefficients
+  matrix[nItems, nItems] covB;  // prior covariance matrix for coefficients
+  
+  int<lower=0> nThetas;        // number of theta values for auxiliary statistics
+  vector[nThetas] thetaVals;   // values for auxiliary statistics
+}
+
+parameters {
+  vector[nObs] theta;                // the latent variables (one for each person)
+  vector[nItems] a;                 // the item intercepts (one for each item)
+  vector[nItems] b;             // the factor loadings/item discriminations (one for each item)
+}
+
+model {
+  
+  a ~ multi_normal(meanA, covA); // Prior for item discrimination/factor loadings
+  b ~ multi_normal(meanB, covB);             // Prior for item intercepts
+  
+  theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
+  
+  for (item in 1:nItems){
+    Y[item] ~ bernoulli_logit(a[item]*(theta - b[item]));
+  }
+  
+}
+
+generated quantities{
+  vector[nItems] lambda;
+  vector[nItems] mu;
+  vector[nThetas] TCC;
+  matrix[nThetas, nItems] itemInfo;
+  vector[nThetas] testInfo;
+  
+  for (val in 1:nThetas){
+    TCC[val] = 0.0;
+    testInfo[val] = -1.0;  // test information must start at -1 to include prior distribution for theta
+    for (item in 1:nItems){
+      itemInfo[val, item] = 0.0;
+    }
+  }
+  
+  lambda = a;
+  for (item in 1:nItems){
+    mu[item] = -1*a[item]*b[item];
+    
+    for (val in 1:nThetas){
+      // test characteristic curve:
+      TCC[val] = TCC[val] + inv_logit(a[item]*(thetaVals[val]-b[item]));
+      
+      // item information functions:
+      itemInfo[val, item] = 
+        itemInfo[val, item] + 
+          a[item]^2*inv_logit(a[item]*(thetaVals[val]-b[item]))*(1-inv_logit(a[item]*(thetaVals[val]-b[item])));
+        
+      // test information functions:
+      testInfo[val] = testInfo[val] + 
+        a[item]^2*inv_logit(a[item]*(thetaVals[val]-b[item]))*(1-inv_logit(a[item]*(thetaVals[val]-b[item])));
+    }
+  }
+  
+  
+  
+}
+
+"
+
+modelIRT_2PL_DD2_stan = cmdstan_model(stan_file = write_stan_file(modelIRT_2PL_DD2_syntax))
+
+thetaVals = seq(-3,3,.01)
+
+modelIRT_2PL_DD2_data = list(
+  nObs = nObs,
+  nItems = nItems,
+  Y = t(conspiracyItemsDichtomous), 
+  meanB = bMeanVecHP,
+  covB = bCovarianceMatrixHP,
+  meanA = aMeanVecHP,
+  covA = aCovarianceMatrixHP,
+  nThetas = length(thetaVals),
+  thetaVals = thetaVals
+)
+
+modelIRT_2PL_DD2_samples = modelIRT_2PL_DD2_stan$sample(
+  data = modelIRT_2PL_DD2_data,
+  seed = 02112022,
   chains = 4,
   parallel_chains = 4,
-  iter_warmup = 2000,
-  iter_sampling = 2000, 
-  init = function() list(lambda=rnorm(nItems, mean=10, sd=2))
+  iter_warmup = 5000,
+  iter_sampling = 5000,
+  init = function() list(a=rnorm(nItems, mean=5, sd=1))
 )
 
-max(modelCFA_samples2fixed$summary()$rhat, na.rm = TRUE)
+# checking convergence
+max(modelIRT_2PL_DD2_samples$summary(variables = c("theta", "a", "b"))$rhat, na.rm = TRUE)
 
-print(modelCFA_samples2fixed$summary(variables = c("mu", "lambda", "psi")) ,n=Inf)
-print(modelCFA_samples2fixed$summary(variables = c("theta")) ,n=Inf)
+# item parameter results
+print(modelIRT_2PL_DD2_samples$summary(variables = c("TCC")) ,n=Inf)
 
-plot(y = modelCFA_samples2fixed$summary(variables = c("mu", "lambda", "psi", "theta"))$mean,
-     x = modelCFA_samples$summary(variables = c("mu", "lambda", "psi", "theta"))$mean,
-     main = "Comparing Results from Converged", xlab = "Without Starting Values",
-     ylab = "With Starting Values")
-cor(modelCFA_samples2fixed$summary(variables = c("mu", "lambda", "psi", "theta"))$mean,
-    modelCFA_samples$summary(variables = c("mu", "lambda", "psi", "theta"))$mean)
 
-save.image("lecture04b.RData")
+# TCC Spaghetti Plots
+tccSamples = modelIRT_2PL_DD2_samples$draws(variables = "TCC", format = "draws_matrix")
+plot(x = thetaVals, 
+     y = tccSamples[1,],
+     xlab = expression(theta), 
+     ylab = "Expected Score", type = "l",
+     main = "Test Characteristic Curve", lwd = 2)
+
+for (draw in 1:nrow(tccSamples)){
+  lines(x = thetaVals,
+        y = tccSamples[draw,])
+}
+
+# EAP TCC
+lines(x = thetaVals, 
+      y = modelIRT_2PL_DD2_samples$summary(variables = c("TCC"))$mean,
+      lwd = 2, 
+      col=2, 
+      lty=3)
+
+legend(x = -3, y = 7, legend = c("Posterior Draw", "EAP"), col = c(1,2), lty = c(1,2), lwd=5)
+
+# ICC Spaghetti Plots
+item = 1
+itemLabel = paste0("Item ", item)
+iccSamples = modelIRT_2PL_DD2_samples$draws(variables = "itemInfo", format = "draws_matrix")
+iccNames = colnames(iccSamples)
+itemSamples = iccSamples[,iccNames[grep(pattern = ",1]", x = iccNames)]]
+
+maxInfo = max(apply(X = itemSamples, MARGIN = 2, FUN = max))
+
+plot(x = thetaVals, 
+     y = itemSamples[1,],
+     xlab = expression(theta), 
+     ylab = "Information", type = "l",
+     main = paste0(itemLabel, " Information Function"), lwd = 2,
+     ylim = c(0,maxInfo+.5))
+
+for (draw in 1:nrow(itemSamples)){
+  lines(x = thetaVals,
+        y = itemSamples[draw,])
+}
+
+# EAP TCC
+lines(x = thetaVals, 
+      y = apply(X = itemSamples, MARGIN=2, FUN=mean),
+      lwd = 3, 
+      col = 2, 
+      lty = 3)
+
+legend(x = -3, y = maxInfo-.5, legend = c("Posterior Draw", "EAP"), col = c(1,2), lty = c(1,2), lwd=5)
+
+
+# TIF Spaghetti Plots
+tifSamples = modelIRT_2PL_DD2_samples$draws(variables = "testInfo", format = "draws_matrix")
+maxTIF = max(apply(X = tifSamples, MARGIN = 2, FUN = max))
+
+plot(x = thetaVals, 
+     y = tifSamples[1,],
+     xlab = expression(theta), 
+     ylab = "Information", type = "l",
+     main = "Test Information Function", lwd = 2,
+     ylim = c(0,maxTIF))
+
+for (draw in 1:nrow(tifSamples)){
+  lines(x = thetaVals,
+        y = tifSamples[draw,])
+}
+
+# EAP TIF
+lines(x = thetaVals, 
+      y = apply(X=tifSamples, MARGIN=2, FUN=mean),
+      lwd = 3, 
+      col = 2, 
+      lty = 3)
+
+legend(x = -3, y = maxTIF, legend = c("Posterior Draw", "EAP"), col = c(1,2), lty = c(1,2), lwd=5)
+
+# EAP TCC
+plot(x = thetaVals, 
+     y = apply(X=tifSamples, MARGIN=2, FUN=mean),
+     xlab = expression(theta), 
+     ylab = "Information", type = "l",
+     main = "Test Information Function", 
+     lwd = 2)
+
+# Other IRT Models ===========================================================
+
+# 1PL Model:
+modelIRT_1PL_syntax = "
+
+data {
+  int<lower=0> nObs;                 // number of observations
+  int<lower=0> nItems;               // number of items
+  array[nItems, nObs] int<lower=0, upper=1>  Y; // item responses in a matrix
+  
+  vector[nItems] meanB;         // prior mean vector for coefficients
+  matrix[nItems, nItems] covB;  // prior covariance matrix for coefficients
+}
+
+parameters {
+  vector[nObs] theta;                // the latent variables (one for each person)
+  vector[nItems] b;             // the factor loadings/item discriminations (one for each item)
+}
+
+model {
+  b ~ multi_normal(meanB, covB);             // Prior for item intercepts
+  theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
+  
+  for (item in 1:nItems){
+    Y[item] ~ bernoulli(inv_logit(theta - b[item]));
+  }
+  
+}
+
+"
+
+modelIRT_1PL_stan = cmdstan_model(stan_file = write_stan_file(modelIRT_1PL_syntax))
+
+modelIRT_1PL_data = list(
+  nObs = nObs,
+  nItems = nItems,
+  Y = t(conspiracyItemsDichtomous), 
+  meanB = bMeanVecHP,
+  covB = bCovarianceMatrixHP
+)
+
+modelIRT_1PL_samples = modelIRT_1PL_stan$sample(
+  data = modelIRT_1PL_data,
+  seed = 021120221,
+  chains = 4,
+  parallel_chains = 4,
+  iter_warmup = 5000,
+  iter_sampling = 5000
+)
+
+# checking convergence
+max(modelIRT_1PL_samples$summary(variables = c("theta", "b"))$rhat, na.rm = TRUE)
+
+modelIRT_1PL_samples$summary(variables = c("b"))
+
+# 3PL Model:
+modelIRT_3PL_syntax = "
+
+data {
+  int<lower=0> nObs;                 // number of observations
+  int<lower=0> nItems;               // number of items
+  array[nItems, nObs] int<lower=0, upper=1>  Y; // item responses in a matrix
+  
+  vector[nItems] meanA;
+  matrix[nItems, nItems] covA;      // prior covariance matrix for coefficients
+  
+  vector[nItems] meanB;         // prior mean vector for coefficients
+  matrix[nItems, nItems] covB;  // prior covariance matrix for coefficients
+}
+
+parameters {
+  vector[nObs] theta;                // the latent variables (one for each person)
+  vector[nItems] a;
+  vector[nItems] b;             // the factor loadings/item discriminations (one for each item)
+  vector<lower=0, upper=1>[nItems] c;
+}
+
+model {
+  a ~ multi_normal(meanA, covA);             // Prior for item intercepts
+  b ~ multi_normal(meanB, covB);             // Prior for item intercepts
+  c ~ beta(1,1);                              // Simple prior for c parameter
+  
+  theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
+  
+  for (item in 1:nItems){
+    Y[item] ~ bernoulli(c[item] + (1-c[item])*inv_logit(a[item]*(theta - b[item])));
+  }
+  
+}
+
+"
+
+modelIRT_3PL_stan = cmdstan_model(stan_file = write_stan_file(modelIRT_3PL_syntax))
+
+modelIRT_3PL_data = list(
+  nObs = nObs,
+  nItems = nItems,
+  Y = t(conspiracyItemsDichtomous), 
+  meanB = bMeanVecHP,
+  covB = bCovarianceMatrixHP,
+  meanA = aMeanVecHP,
+  covA = aCovarianceMatrixHP
+)
+
+modelIRT_3PL_samples = modelIRT_3PL_stan$sample(
+  data = modelIRT_3PL_data,
+  seed = 021120222,
+  chains = 4,
+  parallel_chains = 4,
+  iter_warmup = 5000,
+  iter_sampling = 5000,
+  init = function() list(a=rnorm(nItems, mean=5, sd=1))
+)
+
+# checking convergence
+max(modelIRT_3PL_samples$summary(variables = c("theta", "b", "a", "c"))$rhat, na.rm = TRUE)
+
+print(modelIRT_3PL_samples$summary(variables = c("a", "b", "c")), n=Inf)
+
+# Two-Parameter Normal Ogive Model:
+modelIRT_2PNO_syntax = "
+
+data {
+  int<lower=0> nObs;                 // number of observations
+  int<lower=0> nItems;               // number of items
+  array[nItems, nObs] int<lower=0, upper=1>  Y; // item responses in a matrix
+  
+  vector[nItems] meanA;
+  matrix[nItems, nItems] covA;      // prior covariance matrix for coefficients
+  
+  vector[nItems] meanB;         // prior mean vector for coefficients
+  matrix[nItems, nItems] covB;  // prior covariance matrix for coefficients
+}
+
+parameters {
+  vector[nObs] theta;                // the latent variables (one for each person)
+  vector[nItems] a;
+  vector[nItems] b;             // the factor loadings/item discriminations (one for each item)
+}
+
+model {
+  a ~ multi_normal(meanA, covA);             // Prior for item intercepts
+  b ~ multi_normal(meanB, covB);             // Prior for item intercepts
+  
+  theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
+  
+  for (item in 1:nItems){
+    Y[item] ~ bernoulli(Phi(a[item]*(theta - b[item])));
+  }
+  
+}
+
+"
+
+modelIRT_2PNO_stan = cmdstan_model(stan_file = write_stan_file(modelIRT_2PNO_syntax))
+
+modelIRT_2PNO_data = list(
+  nObs = nObs,
+  nItems = nItems,
+  Y = t(conspiracyItemsDichtomous), 
+  meanB = bMeanVecHP,
+  covB = diag(nItems),
+  meanA = aMeanVecHP,
+  covA = diag(nItems) # changing prior covariance to help with convergence
+)
+
+modelIRT_2PNO_samples = modelIRT_2PNO_stan$sample(
+  data = modelIRT_2PNO_data,
+  seed = 0211202223,
+  chains = 4,
+  parallel_chains = 4,
+  iter_warmup = 5000,
+  iter_sampling = 5000,
+  init = function() list(a=rnorm(nItems, mean=3, sd=.05))
+)
+
+# checking convergence -- not great!
+max(modelIRT_2PNO_samples$summary(variables = c("theta", "b", "a"))$rhat, na.rm = TRUE)
+
+print(modelIRT_2PNO_samples$summary(variables = c("a", "b")), n=Inf)
+
+
+save.image("lecture04c.RData")
+
