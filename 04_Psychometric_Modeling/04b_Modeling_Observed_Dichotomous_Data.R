@@ -6,6 +6,7 @@
 library(cmdstanr)
 library(bayesplot)
 library(ggplot2)
+library(posterior)
 
 # set number of cores to 4 for this analysis
 options(mc.cores = 4)
@@ -146,7 +147,6 @@ mdl_2PL_SI <- cmdstan_model(stan_file = write_stan_file(fml_IRT_2PL_SI))
 
 # data dimensions
 P <- nrow(conspiracy_items)
-I <- ncol(conspiracy_items)
 
 # item intercept hyperparameters
 mu_mean_hp <- 0
@@ -184,8 +184,8 @@ fit_2PL_SI <- mdl_2PL_SI$sample(
   seed = 02112022,
   chains = 4,
   parallel_chains = 4,
-  iter_warmup = 5000,
-  iter_sampling = 5000,
+  iter_warmup = 3000,
+  iter_sampling = 3000,
   # Mean should be below 10, since the log of it is too large
   init = function() list(lambda = rnorm(I, mean = 5, sd = 1))
 )
@@ -201,8 +201,6 @@ max(fit_2PL_SI$summary()$rhat, na.rm = TRUE)
 # item parameter results
 print(fit_2PL_SI$summary(variables = c("mu", "lambda")), n = Inf)
 
-
-
 ###################
 # Item parameters #
 ###################
@@ -216,7 +214,7 @@ format = "draws_matrix")
 itemSummary <- fit_2PL_SI$summary(variables = c(labelMu, labelLambda))
 
 # item plot
-theta = seq(-3,3,.1) # for plotting analysis lines--x axis values
+theta = seq(-3, 3, .1) # for plotting analysis lines--x axis values
 
 # drawing item characteristic curves for item
 logit = as.numeric(itemParameters[1,labelMu]) + as.numeric(itemParameters[1,labelLambda])*theta
@@ -241,83 +239,73 @@ for (draw in 2:nrow(itemParameters)){
 # Extract posterior draws
 draws <- posterior::as_draws_rvars(fit_2PL_SI$draws())
 
+theta_fixed <- seq(-3, 3, length.out = P)
+
 # item plot
 theta <- seq(-3, 3, .1) # for plotting analysis lines--x axis values
 
-draws$logit <- draws$mu + draws$lambda * t(draws$theta)
+# drawing item characteristic curves for item
+draws$logit <- draws$mu + draws$lambda * t(theta_fixed)
+# ...including estimation uncertainty in theta
+# draws$logit <- draws$mu + draws$lambda * t(draws$theta)
 
 # Cannot use logistic function directly, because of the rvar data type
 draws$y <- exp(draws$logit) / (1 + exp(draws$logit))
 
-
-# drawing item characteristic curves for item
-plot(x = mean(draws$theta), y = mean(draws$y[1,]), type = "l", main = paste("Item", itemNumber, "ICC"), 
-     ylim=c(0,1), xlab = expression(theta), ylab=paste("Item", itemNumber, "Predicted Value"))
-
-for (draw in 2:nrow(itemParameters)){
-  logit = as.numeric(itemParameters[draw,labelMu]) + as.numeric(itemParameters[draw,labelLambda])*theta
-  y = exp(logit)/(1+exp(logit))
-  lines(x = theta, y = y)
+# Visualize the item characteristic curve for item 5
+itemno <- 5
+plot(x = theta_fixed, y = mean(draws$y[itemno, ]), type = "l", 
+  main = paste("Item", itemno, "ICC"), ylim = c(0, 1), lwd = 2,
+  xlab = expression(theta), ylab = paste("Item", itemno, "Predicted Value"))
+yno_arr <-  posterior::draws_of(draws$y[itemno, ])
+for (d in 1:100) {
+  lines(theta_fixed, yno_arr[d, 1 ,], col = "steelblue", lwd = 0.5)
 }
+  lines(theta_fixed, mean(draws$y[itemno, ]), lwd = 5)
 
+legend(x = -3, y = 1, legend = c("Posterior Draw", "EAP"), 
+  col = c("steelblue", "black"), lty = c(1,1), lwd=5)
 
-
-# ----------------------------------------------------------------------------
-
-
-
-
-
-# drawing EAP line
-logit = itemSummary$mean[which(itemSummary$variable==labelMu)] + 
-  itemSummary$mean[which(itemSummary$variable==labelLambda)]*theta
-y = exp(logit)/(1+exp(logit))
-lines(x = theta, y = y, lwd = 5, lty=3, col=2)
-
-# legend
-legend(x = -3, y = 1, legend = c("Posterior Draw", "EAP"), col = c(1,2), lty = c(1,3), lwd=5)
 
 # investigating item parameters
-mcmc_trace(modelIRT_2PL_SI_samples$draws(variables = "mu"))
-mcmc_dens(modelIRT_2PL_SI_samples$draws(variables = "mu"))
+#
 
-mcmc_trace(modelIRT_2PL_SI_samples$draws(variables = "lambda"))
-mcmc_dens(modelIRT_2PL_SI_samples$draws(variables = "lambda"))
+# item intercepts
+mcmc_trace(fit_2PL_SI$draws(variables = "mu"))
+mcmc_dens(fit_2PL_SI$draws(variables = "mu"))
 
-# bivariate posterior distributions
-itemNum = 1
-muLabel = paste0("mu[", itemNum, "]")
-lambdaLabel = paste0("lambda[", itemNum, "]")
-mcmc_pairs(modelIRT_2PL_SI_samples$draws(), pars = c(muLabel, lambdaLabel))
+# loadings
+mcmc_trace(fit_2PL_SI$draws(variables = "lambda"))
+mcmc_dens(fit_2PL_SI$draws(variables = "lambda"))
 
-# investigating the latent variables:
-print(modelIRT_2PL_SI_samples$summary(variables = "theta") ,n=Inf)
+# bivariate posterior p.d. 
+mcmc_pairs(fit_2PL_SI$draws(), pars = c("mu[1]", "lambda[1]"))
 
+# investigating the latent variables
+fit_2PL_SI$summary(variables = "theta") 
 
 # EAP Estimates of Latent Variables
+hist(mean(draws$theta), main = "EAP Estimates of Theta", 
+  xlab = expression(theta))
 
-hist(modelIRT_2PL_SI_samples$summary(variables = c("theta"))$mean, main="EAP Estimates of Theta", 
-     xlab = expression(theta))
-
-# Comparing Two Posterior Distributions
-theta1 = "theta[1]"
-theta2 = "theta[2]"
-thetaSamples = modelIRT_2PL_SI_samples$draws(variables = c(theta1, theta2), format = "draws_matrix")
-thetaVec = rbind(thetaSamples[,1], thetaSamples[,2])
-thetaDF = data.frame(observation = c(rep(theta1,nrow(thetaSamples)), rep(theta2, nrow(thetaSamples))), 
-                     sample = thetaVec)
-names(thetaDF) = c("observation", "sample")
-ggplot(thetaDF, aes(x=sample, fill=observation)) +geom_density(alpha=.25)
+# Comparing two posterior distributions
+plot(c(-3,3), c(0, 2), type = "n", xlab = expression(theta), ylab = "Density")
+lines(density(draws_of(draws$theta[1])), col = "red", lwd = 3)
+lines(density(draws_of(draws$theta[2])), col = "blue", lwd = 3)
 
 # Comparing EAP Estimates with Posterior SDs
 
-plot(y = modelIRT_2PL_SI_samples$summary(variables = c("theta"))$sd, 
-     x = modelIRT_2PL_SI_samples$summary(variables = c("theta"))$mean,
-     xlab = "E(theta|Y)", ylab = "SD(theta|Y)", main="Mean vs SD of Theta")
+plot(y = sd(draws$theta), x = mean(draws$theta), pch = 19,
+     xlab = "E(theta|Y)", ylab = "SD(theta|Y)", 
+     main = "Mean vs SD of Theta")
 
 # Comparing EAP Estimates with Sum Scores
-plot(y = rowSums(conspiracyItemsDichtomous), x = modelIRT_2PL_SI_samples$summary(variables = c("theta"))$mean,
+plot(y = rowSums(items_bin), x = mean(draws$theta), pch = 19,
      ylab = "Sum Score", xlab = expression(theta))
+
+#
+# Add course notes!
+# 
 
 
 # IRT Model Syntax (slope/intercept form with discrimination/difficulty calculated) ===========
