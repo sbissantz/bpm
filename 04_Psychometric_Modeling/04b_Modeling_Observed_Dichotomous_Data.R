@@ -107,11 +107,13 @@ plot(x = theta, y = log_lik, type = "l")
 
 # IRT Model Syntax (slope/intercept form )
 
-fml_IRT_2PL_SI = "
+fml_2PL_SI = "
 
 data {
-  int<lower=0> P;                            // number of observations
-  int<lower=0> I;                          // number of items
+  int<lower=0> P;   // number of observations
+  int<lower=0> I;   // number of items
+  
+  // Important: The data are P x I, but we need I x P (row major order)
   array[I, P] int<lower=0, upper=1>  Y; // item responses in an array
 
   vector[I] mu_mean;             // prior mean vector for intercept parameters
@@ -122,28 +124,29 @@ data {
 }
 
 parameters {
-  vector[P] theta;                // the latent variables (one for each person)
-  vector[I] mu;                 // the item intercepts (one for each item)
-  vector[I] lambda;             // the factor loadings/item discriminations (one for each item)
+  vector[P] theta;         // latent variables (one for each person)
+  vector[I] mu;            //  item intercepts (one for each item)
+  vector[I] lambda;        // factor loadings (one for each item)
 }
 
-model {
-  
-  lambda ~ multi_normal(lambda_mean, Lambda_cov); // Prior for item discrimination/factor loadings
-  mu ~ multi_normal(mu_mean, Mu_cov);             // Prior for item intercepts
-  
-  theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
-  
+model { 
+  // Prior for item discrimination/factor loadings
+  lambda ~ multi_normal(lambda_mean, Lambda_cov); 
+
+  mu ~ multi_normal(mu_mean, Mu_cov); // Prior for item intercepts
+  theta ~ normal(0, 1);               // Prior for LV (with mean/sd specified)
   for (i in 1:I){
+    
+    // Import: If we loop with '[i]' we access every person! (row major order)
+    // So the statement is still vectorized because we do not loop over people
     Y[i] ~ bernoulli_logit(mu[i] + lambda[i]*theta);
   }
-  
 }
 
 "
 
 # compile model
-mdl_2PL_SI <- cmdstan_model(stan_file = write_stan_file(fml_IRT_2PL_SI))
+mdl_2PL_SI <- cmdstan_model(stan_file = write_stan_file(fml_2PL_SI))
 
 # data dimensions
 P <- nrow(conspiracy_items)
@@ -202,47 +205,18 @@ max(fit_2PL_SI$summary()$rhat, na.rm = TRUE)
 print(fit_2PL_SI$summary(variables = c("mu", "lambda")), n = Inf)
 
 ###################
-# Item parameters #
+# item parameters #
 ###################
 
-itemNumber = 5
+# summary of the item parameters
+fit_2PL_SI$summary(variables = "mu") # E(Y| theta = 0)
+fit_2PL_SI$summary(variables = "lambda") # E(Y| theta + 1) - E(Y| theta)
 
-labelMu = paste0("mu[", itemNumber, "]")
-labelLambda = paste0("lambda[", itemNumber, "]")
-itemParameters <- fit_2PL_SI$draws(variables = c(labelMu, labelLambda), 
-format = "draws_matrix")
-itemSummary <- fit_2PL_SI$summary(variables = c(labelMu, labelLambda))
-
-# item plot
-theta = seq(-3, 3, .1) # for plotting analysis lines--x axis values
-
-# drawing item characteristic curves for item
-logit = as.numeric(itemParameters[1,labelMu]) + as.numeric(itemParameters[1,labelLambda])*theta
-y = exp(logit)/(1+exp(logit))
-plot(x = theta, y = y, type = "l", main = paste("Item", itemNumber, "ICC"), 
-     ylim=c(0,1), xlab = expression(theta), ylab=paste("Item", itemNumber, "Predicted Value"))
-
-for (draw in 2:nrow(itemParameters)){
-  logit = as.numeric(itemParameters[draw,labelMu]) + as.numeric(itemParameters[draw,labelLambda])*theta
-  y = exp(logit)/(1+exp(logit))
-  lines(x = theta, y = y)
-}
-
-#
-# TODO: Same possible with r.v. from posterior package ?
-#
-
-###################
-# Item parameters #
-###################
-
-# Extract posterior draws
+# extract posterior draws
 draws <- posterior::as_draws_rvars(fit_2PL_SI$draws())
 
+# fixed theta values
 theta_fixed <- seq(-3, 3, length.out = P)
-
-# item plot
-theta <- seq(-3, 3, .1) # for plotting analysis lines--x axis values
 
 # drawing item characteristic curves for item
 draws$logit <- draws$mu + draws$lambda * t(theta_fixed)
@@ -254,18 +228,21 @@ draws$y <- exp(draws$logit) / (1 + exp(draws$logit))
 
 # Visualize the item characteristic curve for item 5
 itemno <- 5
-plot(x = theta_fixed, y = mean(draws$y[itemno, ]), type = "l", 
+plot(
+  x = theta_fixed, y = mean(draws$y[itemno, ]), type = "l",
   main = paste("Item", itemno, "ICC"), ylim = c(0, 1), lwd = 2,
-  xlab = expression(theta), ylab = paste("Item", itemno, "Predicted Value"))
-yno_arr <-  posterior::draws_of(draws$y[itemno, ])
+  xlab = expression(theta),
+  ylab = paste("Item", itemno, "Retrodicted Value")
+)
+yno_arr <- posterior::draws_of(draws$y[itemno, ])
 for (d in 1:100) {
-  lines(theta_fixed, yno_arr[d, 1 ,], col = "steelblue", lwd = 0.5)
+  lines(theta_fixed, yno_arr[d, 1, ], col = "steelblue", lwd = 0.5)
 }
-  lines(theta_fixed, mean(draws$y[itemno, ]), lwd = 5)
-
-legend(x = -3, y = 1, legend = c("Posterior Draw", "EAP"), 
-  col = c("steelblue", "black"), lty = c(1,1), lwd=5)
-
+lines(theta_fixed, mean(draws$y[itemno, ]), lwd = 5)
+legend(-3, 1,
+  legend = c("Posterior Draw", "EAP"),
+  col = c("steelblue", "black"), lty = c(1, 1), lwd = 5
+)
 
 # investigating item parameters
 #
@@ -273,28 +250,33 @@ legend(x = -3, y = 1, legend = c("Posterior Draw", "EAP"),
 # item intercepts
 mcmc_trace(fit_2PL_SI$draws(variables = "mu"))
 mcmc_dens(fit_2PL_SI$draws(variables = "mu"))
+# Results are pretty skewed
 
 # loadings
 mcmc_trace(fit_2PL_SI$draws(variables = "lambda"))
 mcmc_dens(fit_2PL_SI$draws(variables = "lambda"))
+# Results are pretty skewed
 
-# bivariate posterior p.d. 
+# bivariate posterior p.d.
 mcmc_pairs(fit_2PL_SI$draws(), pars = c("mu[1]", "lambda[1]"))
+# Even though we specified the prior p.d.s for the parameter independently, the
+# posterior p.d.s are not independent
 
 # investigating the latent variables
-fit_2PL_SI$summary(variables = "theta") 
+fit_2PL_SI$summary(variables = "theta")
 
 # EAP Estimates of Latent Variables
-hist(mean(draws$theta), main = "EAP Estimates of Theta", 
-  xlab = expression(theta))
+hist(mean(draws$theta),
+  main = "EAP Estimates of Theta",
+  xlab = expression(theta)
+)
 
 # Comparing two posterior distributions
-plot(c(-3,3), c(0, 2), type = "n", xlab = expression(theta), ylab = "Density")
+plot(c(-3, 3), c(0, 2), type = "n", xlab = expression(theta), ylab = "Density")
 lines(density(draws_of(draws$theta[1])), col = "red", lwd = 3)
 lines(density(draws_of(draws$theta[2])), col = "blue", lwd = 3)
 
 # Comparing EAP Estimates with Posterior SDs
-
 plot(y = sd(draws$theta), x = mean(draws$theta), pch = 19,
      xlab = "E(theta|Y)", ylab = "SD(theta|Y)", 
      main = "Mean vs SD of Theta")
@@ -303,20 +285,18 @@ plot(y = sd(draws$theta), x = mean(draws$theta), pch = 19,
 plot(y = rowSums(items_bin), x = mean(draws$theta), pch = 19,
      ylab = "Sum Score", xlab = expression(theta))
 
-#
-# Add course notes!
-# 
-
-
 # IRT Model Syntax (slope/intercept form with discrimination/difficulty calculated) ===========
 
+# TODO
 
-modelIRT_2PL_SI2_syntax = "
+fml_2PL_SI2 <- "
 
 data {
-  int<lower=0> nObs;                            // number of observations
-  int<lower=0> nItems;                          // number of items
-  array[nItems, nObs] int<lower=0, upper=1>  Y; // item responses in an array
+  int<lower=0> P;    // number of observations
+  int<lower=0> I;  // number of items
+
+  // Important: The data are P x I, but we need I x P (row major order)
+  array[I, P] int<lower=0, upper=1>  Y; // item responses in an array
 
   vector[nItems] meanMu;             // prior mean vector for intercept parameters
   matrix[nItems, nItems] covMu;      // prior covariance matrix for intercept parameters
