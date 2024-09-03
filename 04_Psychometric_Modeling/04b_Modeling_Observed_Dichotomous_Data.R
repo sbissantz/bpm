@@ -40,7 +40,7 @@ for (var in seq_len(10)) {
 table(items_bin$PolConsp1, items_bin$PolConsp1)
 
 # item means
-apply(X = items_bin, MARGIN = 2, FUN = mean)
+colMeans(items_bin)
 
 #################################
 # example: Likelihood Functions #
@@ -107,7 +107,7 @@ plot(x = theta, y = log_lik, type = "l")
 
 # IRT Model Syntax (slope/intercept form )
 
-fml_2PL_SI = "
+fml_2PL_SI <- "
 
 data {
   int<lower=0> P;   // number of observations
@@ -188,7 +188,7 @@ fit_2PL_SI <- mdl_2PL_SI$sample(
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 3000,
-  iter_sampling = 3000,
+  iter_sampling = 2000,
   # Mean should be below 10, since the log of it is too large
   init = function() list(lambda = rnorm(I, mean = 5, sd = 1))
 )
@@ -213,32 +213,32 @@ fit_2PL_SI$summary(variables = "mu") # E(Y| theta = 0)
 fit_2PL_SI$summary(variables = "lambda") # E(Y| theta + 1) - E(Y| theta)
 
 # extract posterior draws
-draws <- posterior::as_draws_rvars(fit_2PL_SI$draws())
+drawsSI <- posterior::as_draws_rvars(fit_2PL_SI$draws())
 
 # fixed theta values
 theta_fixed <- seq(-3, 3, length.out = P)
 
 # drawing item characteristic curves for item
-draws$logit <- draws$mu + draws$lambda * t(theta_fixed)
+drawsSI$logit <- drawsSI$mu + drawsSI$lambda * t(theta_fixed)
 # ...including estimation uncertainty in theta
 # draws$logit <- draws$mu + draws$lambda * t(draws$theta)
 
 # Cannot use logistic function directly, because of the rvar data type
-draws$y <- exp(draws$logit) / (1 + exp(draws$logit))
+drawsSI$y <- exp(drawsSI$logit) / (1 + exp(drawsSI$logit))
 
 # Visualize the item characteristic curve for item 5
 itemno <- 5
 plot(
-  x = theta_fixed, y = mean(draws$y[itemno, ]), type = "l",
+  x = theta_fixed, y = mean(drawsSI$y[itemno, ]), type = "l",
   main = paste("Item", itemno, "ICC"), ylim = c(0, 1), lwd = 2,
   xlab = expression(theta),
   ylab = paste("Item", itemno, "Retrodicted Value")
 )
-yno_arr <- posterior::draws_of(draws$y[itemno, ])
+yno_arr <- posterior::draws_of(drawsSI$y[itemno, ])
 for (d in 1:100) {
   lines(theta_fixed, yno_arr[d, 1, ], col = "steelblue", lwd = 0.5)
 }
-lines(theta_fixed, mean(draws$y[itemno, ]), lwd = 5)
+lines(theta_fixed, mean(drawsSI$y[itemno, ]), lwd = 5)
 legend(-3, 1,
   legend = c("Posterior Draw", "EAP"),
   col = c("steelblue", "black"), lty = c(1, 1), lwd = 5
@@ -266,224 +266,242 @@ mcmc_pairs(fit_2PL_SI$draws(), pars = c("mu[1]", "lambda[1]"))
 fit_2PL_SI$summary(variables = "theta")
 
 # EAP Estimates of Latent Variables
-hist(mean(draws$theta),
+hist(mean(drawsSI$theta),
   main = "EAP Estimates of Theta",
   xlab = expression(theta)
 )
 
 # Comparing two posterior distributions
 plot(c(-3, 3), c(0, 2), type = "n", xlab = expression(theta), ylab = "Density")
-lines(density(draws_of(draws$theta[1])), col = "red", lwd = 3)
-lines(density(draws_of(draws$theta[2])), col = "blue", lwd = 3)
+lines(density(draws_of(drawsSI$theta[1])), col = "red", lwd = 3)
+lines(density(draws_of(drawsSI$theta[2])), col = "blue", lwd = 3)
 
 # Comparing EAP Estimates with Posterior SDs
-plot(y = sd(draws$theta), x = mean(draws$theta), pch = 19,
+plot(y = sd(drawsSI$theta), x = mean(drawsSI$theta), pch = 19,
      xlab = "E(theta|Y)", ylab = "SD(theta|Y)", 
      main = "Mean vs SD of Theta")
 
 # Comparing EAP Estimates with Sum Scores
-plot(y = rowSums(items_bin), x = mean(draws$theta), pch = 19,
+plot(y = rowSums(items_bin), x = mean(drawsSI$theta), pch = 19,
      ylab = "Sum Score", xlab = expression(theta))
 
-# IRT Model Syntax (slope/intercept form with discrimination/difficulty calculated) ===========
+###############################################
+# 2PL (slope/intercept)                       # 
+# with discrimination/difficulty calculated)  #
+###############################################
 
-# TODO
+# IRT Model Syntax (slope/intercept form )
+# with discrimination/difficulty calculated in the generated quantities block
 
 fml_2PL_SI2 <- "
 
 data {
-  int<lower=0> P;    // number of observations
-  int<lower=0> I;  // number of items
-
+  int<lower=0> P;   // number of observations
+  int<lower=0> I;   // number of items
+  
   // Important: The data are P x I, but we need I x P (row major order)
   array[I, P] int<lower=0, upper=1>  Y; // item responses in an array
 
-  vector[nItems] meanMu;             // prior mean vector for intercept parameters
-  matrix[nItems, nItems] covMu;      // prior covariance matrix for intercept parameters
+  vector[I] mu_mean;             // prior mean vector for intercept parameters
+  matrix[I, I] Mu_cov;      // prior covariance matrix for intercept parameters
   
-  vector[nItems] meanLambda;         // prior mean vector for discrimination parameters
-  matrix[nItems, nItems] covLambda;  // prior covariance matrix for discrimination parameters
+  vector[I] lambda_mean;    // prior mean vector for discrimination parameters
+  matrix[I, I] Lambda_cov;  // prior covariance matrix for discrimination parameters
 }
 
 parameters {
-  vector[nObs] theta;                // the latent variables (one for each person)
-  vector[nItems] mu;                 // the item intercepts (one for each item)
-  vector[nItems] lambda;             // the factor loadings/item discriminations (one for each item)
+  vector[P] theta;         // latent variables (one for each person)
+  vector[I] mu;            //  item intercepts (one for each item)
+  vector[I] lambda;        // factor loadings (one for each item)
 }
 
-model {
-  
-  lambda ~ multi_normal(meanLambda, covLambda); // Prior for item discrimination/factor loadings
-  mu ~ multi_normal(meanMu, covMu);             // Prior for item intercepts
-  
-  theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
-  
-  for (item in 1:nItems){
-    Y[item] ~ bernoulli_logit(mu[item] + lambda[item]*theta);
+model { 
+  // Prior for item discrimination/factor loadings
+  lambda ~ multi_normal(lambda_mean, Lambda_cov); 
+
+  mu ~ multi_normal(mu_mean, Mu_cov); // Prior for item intercepts
+  theta ~ normal(0, 1);               // Prior for LV (with mean/sd specified)
+  for (i in 1:I){
+    
+    // Import: If we loop with '[i]' we access every person! (row major order)
+    // So the statement is still vectorized because we do not loop over people
+    Y[i] ~ bernoulli_logit(mu[i] + lambda[i]*theta);
   }
-  
 }
 
-generated quantities{
-  vector[nItems] a;
-  vector[nItems] b;
+generated quantities {
+  vector[I] a;
+  vector[I] b;
   
-  for (item in 1:nItems){
-    a[item] = lambda[item];
-    b[item] = -1*mu[item]/lambda[item];
+  for (i in 1:I){
+    // Important: the item discrimination is th 
+    a[I] = lambda[i];           // item discrimination
+    b[I] = -1*mu[i]/lambda[i];  // item difficulty 
   }
-  
 }
-
 "
 
-modelIRT_2PL_SI2_stan = cmdstan_model(stan_file = write_stan_file(modelIRT_2PL_SI2_syntax))
+# compile model
+mdl_2PL_SI2 <- cmdstan_model(stan_file = write_stan_file(fml_2PL_SI2))
 
-
-modelIRT_2PL_SI2_samples = modelIRT_2PL_SI2_stan$sample(
-  data = modelIRT_2PL_SI_data,
-  seed = 02112022,
+# fit model to data
+fit_2PL_SI2 <- mdl_2PL_SI2$sample(
+  data = stanls_2PL_SI,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
-  iter_warmup = 5000,
-  iter_sampling = 5000,
-  init = function() list(lambda=rnorm(nItems, mean=5, sd=1))
+  iter_warmup = 3000,
+  iter_sampling = 2000,
+  init = function() list(lambda = rnorm(I, mean = 5, sd = 1))
 )
 
-# checking convergence
-max(modelIRT_2PL_SI2_samples$summary()$rhat, na.rm = TRUE)
+# diagnostics 
+max(fit_2PL_SI2$summary()$rhat, na.rm = TRUE)
+fit_2PL_SI2$cmdstan_diagnose()
+fit_2PL_SI2$diagnostic_summary()
+
 
 # item parameter results
-print(modelIRT_2PL_SI2_samples$summary(variables = c("a", "b")) ,n=Inf)
+print(fit_2PL_SI2$summary(variables = c("a", "b")) ,n = Inf)
 
-# IRT Model Syntax (discrimination/difficulty form ) ==================================================
+# extract posterior draws
+drawsSI2 <- posterior::as_draws_rvars(fit_2PL_SI2$draws())
 
-modelIRT_2PL_DD_syntax = "
+#  2PL discrimination/difficulty j
+
+fml_2PL_DD <- "
 
 data {
-  int<lower=0> nObs;                 // number of observations
-  int<lower=0> nItems;               // number of items
-  array[nItems, nObs] int<lower=0, upper=1>  Y; // item responses in a matrix
+  int<lower=0> P;                 // number of observations
+  int<lower=0> I;               // number of items
+  array[I, P] int<lower=0, upper=1>  Y; // item responses in a matrix
 
-  vector[nItems] meanA;
-  matrix[nItems, nItems] covA;      // prior covariance matrix for coefficients
+  vector[I] a_mean;
+  matrix[I, I] A_cov;      // prior covariance matrix for coefficients
   
-  vector[nItems] meanB;         // prior mean vector for coefficients
-  matrix[nItems, nItems] covB;  // prior covariance matrix for coefficients
+  vector[I] b_mean;         // prior mean vector for coefficients
+  matrix[I, I] B_cov;  // prior covariance matrix for coefficients
 }
 
 parameters {
-  vector[nObs] theta;                // the latent variables (one for each person)
-  vector[nItems] a;                 // the item intercepts (one for each item)
-  vector[nItems] b;             // the factor loadings/item discriminations (one for each item)
+  vector[P] theta;                // LV (1/person)
+  vector[I] a;                 // item intercepts (1/item)
+  vector[I] b;             // item discriminations/factor loading (1/item)
 }
 
 model {
+  // Prior for item discrimination/factor loadings
+  a ~ multi_normal(a_mean, A_cov); 
+  b ~ multi_normal(b_mean, B_cov);             // Prior for item intercepts
   
-  a ~ multi_normal(meanA, covA); // Prior for item discrimination/factor loadings
-  b ~ multi_normal(meanB, covB);             // Prior for item intercepts
+  theta ~ normal(0, 1);    // Standadardized LV (with mean/sd specified)
   
-  theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
-  
-  for (item in 1:nItems){
-    Y[item] ~ bernoulli_logit(a[item]*(theta - b[item]));
+  for (i in 1:I){
+    Y[i] ~ bernoulli_logit(a[i]*(theta - b[i]));
   }
   
 }
 
 generated quantities{
-  vector[nItems] lambda;
-  vector[nItems] mu;
+  vector[I] lambda;
+  vector[I] mu;
   
   lambda = a;
-  for (item in 1:nItems){
-    mu[item] = -1*a[item]*b[item];
+  for (i in 1:I){
+    mu[i] = -1*a[i]*b[i];
   }
 }
 
 "
 
-modelIRT_2PL_DD_stan = cmdstan_model(stan_file = write_stan_file(modelIRT_2PL_DD_syntax))
-
-# data dimensions
-nObs = nrow(conspiracyItems)
-nItems = ncol(conspiracyItems)
+# compile modeo
+mdl_2PL_DD <- cmdstan_model(stan_file = write_stan_file(fml_2PL_DD))
 
 # item intercept hyperparameters
-bMeanHyperParameter = 0
-bMeanVecHP = rep(bMeanHyperParameter, nItems)
+b_mean_hp <- 0
+b_mean <- rep(b_mean_hp, I)
 
-bVarianceHyperParameter = 1000
-bCovarianceMatrixHP = diag(x = bVarianceHyperParameter, nrow = nItems)
+b_var_hp <- 1000
+B_cov = diag(b_var_hp, I)
 
 # item discrimination/factor loading hyperparameters
-aMeanHyperParameter = 0
-aMeanVecHP = rep(aMeanHyperParameter, nItems)
+a_mean_hp <- 0
+a_mean <- rep(a_mean_hp, I)
 
-aVarianceHyperParameter = 1000
-aCovarianceMatrixHP = diag(x = aVarianceHyperParameter, nrow = nItems)
+a_var_hp <- 1000
+A_cov <- diag(a_var_hp, I)
 
-modelIRT_2PL_DD_data = list(
-  nObs = nObs,
-  nItems = nItems,
-  Y = t(conspiracyItemsDichtomous), 
-  meanB = bMeanVecHP,
-  covB = bCovarianceMatrixHP,
-  meanA = aMeanVecHP,
-  covA = aCovarianceMatrixHP
+stanls_2PL_DD = list(
+  "P" = P,
+  "I" = I,
+  "Y" = t(items_bin), 
+  "b_mean" = b_mean,
+  "B_cov" = B_cov,
+  "a_mean" = a_mean,
+  "A_cov" = A_cov
 )
 
-modelIRT_2PL_DD_samples = modelIRT_2PL_DD_stan$sample(
-  data = modelIRT_2PL_DD_data,
+fit_2PL_DD <- mdl_2PL_DD$sample(
+  data = stanls_2PL_DD,
   seed = 02112022,
   chains = 4,
   parallel_chains = 4,
-  iter_warmup = 5000,
-  iter_sampling = 5000,
-  init = function() list(a=rnorm(nItems, mean=5, sd=1))
+  iter_warmup = 3000,
+  iter_sampling = 2000,
+  init = function() list(a = rnorm(I, mean = 5, sd = 1))
 )
 
-# checking convergence
-max(modelIRT_2PL_DD_samples$summary()$rhat, na.rm = TRUE)
+###############
+# diagnostics #
+###############
 
-# item parameter results
-print(modelIRT_2PL_DD_samples$summary(variables = c("a", "b")) ,n=Inf)
+# checking convergence
+fit_2PL_DD$summary()
+fit_2PL_DD$cmdstan_diagnose()
+fit_2PL_DD$diagnostic_summary()
+max(fit_2PL_DD$summary()$rhat, na.rm = TRUE)
+
+###################
+# item parameters #
+###################
+
+# summary of the item parameters
+fit_2PL_DD$summary("a") # E(Y| theta = 0)
+fit_2PL_DD$summary("b") # E(Y| theta + 1) - E(Y| theta)
+
+# extract posterior draws
+drawsDD <- posterior::as_draws_rvars(fit_2PL_DD$draws())
+
+# fixed theta values
+theta_fixed <- seq(-3, 3, length.out = P)
+
+# drawing item characteristic curves for item
+drawsDD$logit <- drawsDD$mu + drawsDD$lambda * t(theta_fixed)
+# ...including estimation uncertainty in theta
+# drawsDD$y <- exp(drawsDD$logit) / (1 + exp(drawsDD$logit))
 
 # comparing with other parameters estimated:
-plot(x = modelIRT_2PL_DD_samples$summary(variables = c("b"))$mean,
-     y = modelIRT_2PL_SI2_samples$summary(variables = c("b"))$mean,
+plot(x = mean(drawsDD$b), y = mean(drawsSI2$b),
      xlab = "Discrimination/Difficulty Model", 
      ylab = "Slope/Intercept Model",
      main = "Difficulty Parameter EAP Estimates"
 )
 
 # comparing with other parameters estimated:
-plot(x = modelIRT_2PL_DD_samples$summary(variables = c("a"))$mean,
-     y = modelIRT_2PL_SI2_samples$summary(variables = c("a"))$mean,
+plot(x = mean(drawsDD$theta), y = mean(drawsSI2$theta),
      xlab = "Discrimination/Difficulty Model", 
      ylab = "Slope/Intercept Model",
-     main = "Discrimination Parameters EAP Estimates"
-)
-
-# theta results
-# comparing with other parameters estimated:
-plot(x = modelIRT_2PL_DD_samples$summary(variables = c("theta"))$mean,
-     y = modelIRT_2PL_SI2_samples$summary(variables = c("theta"))$mean,
-     xlab = "Discrimination/Difficulty Model", 
-     ylab = "Slope/Intercept Model",
-     main = "Theta EAP Estimates"
-)
+     main = "Difficulty Parameter EAP Estimates")
 
 # comparing with other parameters estimated:
-plot(x = modelIRT_2PL_DD_samples$summary(variables = c("theta"))$sd,
-     y = modelIRT_2PL_SI2_samples$summary(variables = c("theta"))$sd,
+plot(x = sd(drawsDD$theta), y = sd(drawsSI2$theta),
      xlab = "Discrimination/Difficulty Model", 
      ylab = "Slope/Intercept Model",
-     main = "Theta SD Estimates"
-)
+     main = "Theta SD Estimates")
 
-
-# IRT Auxiliary Statistics ===========================================================
+########################
+# Auxiliary Statistic  #        
+########################
 
 modelIRT_2PL_DD2_syntax = "
 
@@ -555,11 +573,11 @@ generated quantities{
     }
   }
   
-  
-  
 }
 
 "
+
+# TODO
 
 modelIRT_2PL_DD2_stan = cmdstan_model(stan_file = write_stan_file(modelIRT_2PL_DD2_syntax))
 
