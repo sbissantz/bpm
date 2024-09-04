@@ -360,9 +360,8 @@ max(fit_2PL_SI2$summary()$rhat, na.rm = TRUE)
 fit_2PL_SI2$cmdstan_diagnose()
 fit_2PL_SI2$diagnostic_summary()
 
-
 # item parameter results
-print(fit_2PL_SI2$summary(variables = c("a", "b")) ,n = Inf)
+print(fit_2PL_SI2$summary(variables = c("a", "b")), n = Inf)
 
 # extract posterior draws
 drawsSI2 <- posterior::as_draws_rvars(fit_2PL_SI2$draws())
@@ -503,73 +502,74 @@ plot(x = sd(drawsDD$theta), y = sd(drawsSI2$theta),
 # Auxiliary Statistic  #        
 ########################
 
-modelIRT_2PL_DD2_syntax = "
+fml_2PL_DD2 <- "
 
 data {
-  int<lower=0> nObs;                 // number of observations
-  int<lower=0> nItems;               // number of items
-  array[nItems, nObs] int<lower=0, upper=1>  Y; // item responses in a matrix
+  int<lower=0> P;               // number of observations
+  int<lower=0> I;               // number of items
+  array[I, P] int<lower=0, upper=1>  Y; // item responses in an array 
 
-  vector[nItems] meanA;
-  matrix[nItems, nItems] covA;      // prior covariance matrix for coefficients
+  vector[I] a_mean;
+  matrix[I, I] A_cov;      // prior covariance matrix for coefficients
   
-  vector[nItems] meanB;         // prior mean vector for coefficients
-  matrix[nItems, nItems] covB;  // prior covariance matrix for coefficients
+  vector[I] b_mean;         // prior mean vector for coefficients
+  matrix[I, I] B_cov;  // prior covariance matrix for coefficients
   
-  int<lower=0> nThetas;        // number of theta values for auxiliary statistics
-  vector[nThetas] thetaVals;   // values for auxiliary statistics
+  int<lower=0> N_theta;        // n° of theta values for auxiliary statistics
+  vector[N_theta] theta_fix;   // values for auxiliary statistics
 }
 
 parameters {
-  vector[nObs] theta;                // the latent variables (one for each person)
-  vector[nItems] a;                 // the item intercepts (one for each item)
-  vector[nItems] b;             // the factor loadings/item discriminations (one for each item)
+  vector[P] theta;          // the latent variables (1/person)
+  vector[I] a;              // the item intercepts (1/item)
+  vector[I] b;               // item discriminations/loading (1/item)
 }
 
 model {
   
-  a ~ multi_normal(meanA, covA); // Prior for item discrimination/factor loadings
-  b ~ multi_normal(meanB, covB);             // Prior for item intercepts
+  a ~ multi_normal(a_mean, A_cov); // item discrimination/factor loadings
+  b ~ multi_normal(b_mean, B_cov);             // Prior for item intercepts
   
-  theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
+  theta ~ normal(0, 1);    // Standardied LV, prior p.d. (mean/sd specified)
   
-  for (item in 1:nItems){
-    Y[item] ~ bernoulli_logit(a[item]*(theta - b[item]));
+  for (i in 1:I){
+    // Import: If we loop with '[i]' we access every person! (row major order)
+    Y[i] ~ bernoulli_logit(a[i]*(theta - b[i]));
   }
   
 }
 
 generated quantities{
-  vector[nItems] lambda;
-  vector[nItems] mu;
-  vector[nThetas] TCC;
-  matrix[nThetas, nItems] itemInfo;
-  vector[nThetas] testInfo;
+  vector[I] lambda;
+  vector[I] mu;
+  vector[N_theta] TCC;
+  matrix[N_theta, I] item_info;
+  vector[N_theta] test_info;
   
-  for (val in 1:nThetas){
-    TCC[val] = 0.0;
-    testInfo[val] = -1.0;  // test information must start at -1 to include prior distribution for theta
-    for (item in 1:nItems){
-      itemInfo[val, item] = 0.0;
+  for (v in 1:N_theta){
+    TCC[v] = 0.0;
+    // test info must start at -1 to include prior p.d. for theta
+    test_info[v] = -1.0;  
+    for (i in 1:I){
+      item_info[v, i] = 0.0;
     }
   }
   
   lambda = a;
-  for (item in 1:nItems){
-    mu[item] = -1*a[item]*b[item];
+  for (i in 1:I){
+    mu[i] = -1*a[i]*b[i];
     
-    for (val in 1:nThetas){
+    for (v in 1:N_theta){
       // test characteristic curve:
-      TCC[val] = TCC[val] + inv_logit(a[item]*(thetaVals[val]-b[item]));
+      TCC[v] = TCC[v] + inv_logit(a[i]*(theta_fix[v]-b[i]));
       
       // item information functions:
-      itemInfo[val, item] = 
-        itemInfo[val, item] + 
-          a[item]^2*inv_logit(a[item]*(thetaVals[val]-b[item]))*(1-inv_logit(a[item]*(thetaVals[val]-b[item])));
+      item_info[v, i] = 
+        item_info[v, i] + a[i]^2 * inv_logit(a[i] * (theta_fix[v] - b[i])) * 
+          (1 - inv_logit(a[i] * (theta_fix[v] - b[i])));
         
       // test information functions:
-      testInfo[val] = testInfo[val] + 
-        a[item]^2*inv_logit(a[item]*(thetaVals[val]-b[item]))*(1-inv_logit(a[item]*(thetaVals[val]-b[item])));
+      test_info[v] = test_info[v] + a[i]^2 * inv_logit(a[i] * (theta_fix[v] - b[i])) * (1 - inv_logit(a[i] * (theta_fix[v] - b[i])));
     }
   }
   
@@ -577,73 +577,96 @@ generated quantities{
 
 "
 
-# TODO
+# Compile model
+mdl_2PL_DD2 <- cmdstan_model(stan_file = write_stan_file(fml_2PL_DD2))
 
-modelIRT_2PL_DD2_stan = cmdstan_model(stan_file = write_stan_file(modelIRT_2PL_DD2_syntax))
+# values for auxiliary statistics 
+theta_fix <- seq(-3, 3, length.out = P)
 
-thetaVals = seq(-3,3,.01)
-
-modelIRT_2PL_DD2_data = list(
-  nObs = nObs,
-  nItems = nItems,
-  Y = t(conspiracyItemsDichtomous), 
-  meanB = bMeanVecHP,
-  covB = bCovarianceMatrixHP,
-  meanA = aMeanVecHP,
-  covA = aCovarianceMatrixHP,
-  nThetas = length(thetaVals),
-  thetaVals = thetaVals
+stanls_2PL_DD2 = list(
+  "P" = P,
+  "I" = I,
+  "Y" = t(items_bin), 
+  "b_mean" = b_mean,
+  "B_cov" = B_cov,
+  "a_mean" = a_mean,
+  "A_cov" = A_cov,
+  "N_theta" = length(theta_fix),
+  "theta_fix" = theta_fix 
 )
 
-modelIRT_2PL_DD2_samples = modelIRT_2PL_DD2_stan$sample(
+fit_2PL_DD2 <- mdl_2PL_DD2$sample(
   data = modelIRT_2PL_DD2_data,
   seed = 02112022,
   chains = 4,
   parallel_chains = 4,
-  iter_warmup = 5000,
-  iter_sampling = 5000,
-  init = function() list(a=rnorm(nItems, mean=5, sd=1))
+  iter_warmup = 3000,
+  iter_sampling = 2000,
+  # Important: Now we use a instead of lambda
+  init = function() list(a = rnorm(I, mean = 5, sd = 1))
 )
 
-# checking convergence
-max(modelIRT_2PL_DD2_samples$summary(variables = c("theta", "a", "b"))$rhat, na.rm = TRUE)
+###############
+# diagnostics #
+###############
 
-# item parameter results
-print(modelIRT_2PL_DD2_samples$summary(variables = c("TCC")) ,n=Inf)
+# checking cnvergence
+fit_2PL_DD2$summary()
+fit_2PL_DD2$cmdstan_diagnose()
+fit_2PL_DD2$diagnostic_summary()
+max(fit_2PL_DD2$summary()$rhat, na.rm = TRUE)
 
+###################
+# item parameters #
+###################
+
+# summary of the item parameters
+fit_2PL_DD2$summary("a") # E(Y| theta = 0)
+fit_2PL_DD2$summary("b") # E(Y| theta + 1) - E(Y| theta)
+
+# extract posterior draws
+drawsDD2 <- posterior::as_draws_rvars(fit_2PL_DD2$draws())
+
+# fixed theta values
+theta_fixed <- seq(-3, 3, length.out = P)
+
+# drawing item characteristic curves for item
+drawsDD2$logit <- drawsDD2$mu + drawsDD2$lambda * t(theta_fixed)
+# ...including estimation uncertainty in theta
+# drawsDD$y <- exp(drawsDD$logit) / (1 + exp(drawsDD$logit))
 
 # TCC Spaghetti Plots
-tccSamples = modelIRT_2PL_DD2_samples$draws(variables = "TCC", format = "draws_matrix")
-plot(x = thetaVals, 
-     y = tccSamples[1,],
+plot(x = theta_fix, 
+     y = mean(drawsDD2$TCC),
      xlab = expression(theta), 
      ylab = "Expected Score", type = "l",
-     main = "Test Characteristic Curve", lwd = 2)
-
-for (draw in 1:nrow(tccSamples)){
-  lines(x = thetaVals,
-        y = tccSamples[draw,])
+     main = "Test Characteristic Curve", lwd = 4)
+seq_len(100)
+tcc_arr <- draws_of(drawsDD2$TCC)
+for (d in seq_len(100)){
+  lines(theta_fix, y = tcc_arr[d, ], col = "steelblue")
 }
+lines(theta_fix, y = mean(drawsDD2$TCC), lwd = 4)
+legend(
+  x = -3, y = 7,
+  legend = c("Posterior Draw", "EAP"), col = c(1, 2), lty = c(1, 2), lwd = 5
+)
 
-# EAP TCC
-lines(x = thetaVals, 
-      y = modelIRT_2PL_DD2_samples$summary(variables = c("TCC"))$mean,
-      lwd = 2, 
-      col=2, 
-      lty=3)
 
-legend(x = -3, y = 7, legend = c("Posterior Draw", "EAP"), col = c(1,2), lty = c(1,2), lwd=5)
+# TODO
+# TODO
+# TODO
 
 # ICC Spaghetti Plots
-item = 1
+item_no = 1
 itemLabel = paste0("Item ", item)
-iccSamples = modelIRT_2PL_DD2_samples$draws(variables = "itemInfo", format = "draws_matrix")
+iccSamples = fit_2PL_DD2$draws(variables = "item_info", format = "draws_matrix")
 iccNames = colnames(iccSamples)
 itemSamples = iccSamples[,iccNames[grep(pattern = ",1]", x = iccNames)]]
 
 maxInfo = max(apply(X = itemSamples, MARGIN = 2, FUN = max))
 
-plot(x = thetaVals, 
+plot(x = theta_fix, 
      y = itemSamples[1,],
      xlab = expression(theta), 
      ylab = "Information", type = "l",
@@ -651,7 +674,7 @@ plot(x = thetaVals,
      ylim = c(0,maxInfo+.5))
 
 for (draw in 1:nrow(itemSamples)){
-  lines(x = thetaVals,
+  lines(x = theta_fix,
         y = itemSamples[draw,])
 }
 
