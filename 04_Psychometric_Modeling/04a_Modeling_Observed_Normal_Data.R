@@ -11,7 +11,6 @@ library(ggplot2)
 # assuming a normal distribution for the data
 conspiracy_data <- read.csv("./data/conspiracies.csv")
 
-#03_MCMC_and_Stan/conspiracies.csv
 # only using the first 10 items
 # positive values mean resemble agreement
 conspiracy_items <- conspiracy_data[, 1 : 10]
