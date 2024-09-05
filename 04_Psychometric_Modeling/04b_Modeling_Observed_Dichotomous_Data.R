@@ -8,9 +8,6 @@ library(bayesplot)
 library(ggplot2)
 library(posterior)
 
-# set number of cores to 4 for this analysis
-options(mc.cores = 4)
-
 ########
 # data #
 ########
@@ -107,7 +104,7 @@ plot(x = theta, y = log_lik, type = "l")
 
 # IRT Model Syntax (slope/intercept form )
 
-fml_2PL_SI <- "
+fml_2pl_si <- "
 
 data {
   int<lower=0> P;   // number of observations
@@ -146,7 +143,7 @@ model {
 "
 
 # compile model
-mdl_2PL_SI <- cmdstan_model(stan_file = write_stan_file(fml_2PL_SI))
+mdl_2pl_si <- cmdstan_model(stan_file = write_stan_file(fml_2pl_si))
 
 # data dimensions
 P <- nrow(conspiracy_items)
@@ -170,7 +167,7 @@ Lambda_cov <- diag(lambda_var_hp, I)
 #############
 
 # build r list for stan
-stanls_2PL_SI <- list(
+stanls_2pl_si <- list(
   "P" = P,
   "I" = I,
   # Important transpose (array in stan are in row major order)
@@ -182,8 +179,8 @@ stanls_2PL_SI <- list(
 )
 
 # run MCMC chain (sample from posterior p.d.)
-fit_2PL_SI <- mdl_2PL_SI$sample(
-  data = stanls_2PL_SI,
+fit_2pl_si <- mdl_2pl_si$sample(
+  data = stanls_2pl_si,
   seed = 02112022,
   chains = 4,
   parallel_chains = 4,
@@ -194,26 +191,26 @@ fit_2PL_SI <- mdl_2PL_SI$sample(
 )
 
 # assess convergence: summary of all parameters
-fit_2PL_SI$summary()
-fit_2PL_SI$cmdstan_diagnose()
-fit_2PL$diagnostic_summary()
+fit_2pl_si$summary()
+fit_2pl_si$cmdstan_diagnose()
+fit_2pl_si$diagnostic_summary()
 
 # checking convergence
-max(fit_2PL_SI$summary()$rhat, na.rm = TRUE)
+max(fit_2pl_si$summary()$rhat, na.rm = TRUE)
 
 # item parameter results
-print(fit_2PL_SI$summary(variables = c("mu", "lambda")), n = Inf)
+print(fit_2pl_si$summary(variables = c("mu", "lambda")), n = Inf)
 
 ###################
 # item parameters #
 ###################
 
 # summary of the item parameters
-fit_2PL_SI$summary(variables = "mu") # E(Y| theta = 0)
-fit_2PL_SI$summary(variables = "lambda") # E(Y| theta + 1) - E(Y| theta)
+fit_2pl_si$summary(variables = "mu") # E(Y| theta = 0)
+fit_2pl_si$summary(variables = "lambda") # E(Y| theta + 1) - E(Y| theta)
 
 # extract posterior draws
-drawsSI <- posterior::as_draws_rvars(fit_2PL_SI$draws())
+drawsSI <- posterior::as_draws_rvars(fit_2pl_si$draws())
 
 # fixed theta values
 theta_fixed <- seq(-3, 3, length.out = P)
@@ -248,42 +245,42 @@ legend(-3, 1,
 #
 
 # item intercepts
-mcmc_trace(fit_2PL_SI$draws(variables = "mu"))
-mcmc_dens(fit_2PL_SI$draws(variables = "mu"))
+mcmc_trace(fit_2pl_si$draws(variables = "mu"))
+mcmc_dens(fit_2pl_si$draws(variables = "mu"))
 # Results are pretty skewed
 
 # loadings
-mcmc_trace(fit_2PL_SI$draws(variables = "lambda"))
-mcmc_dens(fit_2PL_SI$draws(variables = "lambda"))
+mcmc_trace(fit_2pl_si$draws(variables = "lambda"))
+mcmc_dens(fit_2pl_si$draws(variables = "lambda"))
 # Results are pretty skewed
 
 # bivariate posterior p.d.
-mcmc_pairs(fit_2PL_SI$draws(), pars = c("mu[1]", "lambda[1]"))
+mcmc_pairs(fit_2pl_si$draws(), pars = c("mu[1]", "lambda[1]"))
 # Even though we specified the prior p.d.s for the parameter independently, the
 # posterior p.d.s are not independent
 
 # investigating the latent variables
-fit_2PL_SI$summary(variables = "theta")
+fit_2pl_si$summary(variables = "theta")
 
 # EAP Estimates of Latent Variables
-hist(mean(drawsSI$theta),
+hist(mean(draws_si$theta),
   main = "EAP Estimates of Theta",
   xlab = expression(theta)
 )
 
 # Comparing two posterior distributions
 plot(c(-3, 3), c(0, 2), type = "n", xlab = expression(theta), ylab = "Density")
-lines(density(draws_of(drawsSI$theta[1])), col = "red", lwd = 3)
-lines(density(draws_of(drawsSI$theta[2])), col = "blue", lwd = 3)
+lines(density(draws_of(draws_si$theta[1])), col = "red", lwd = 3)
+lines(density(draws_of(draws_si$theta[2])), col = "blue", lwd = 3)
 
 # Comparing EAP Estimates with Posterior SDs
-plot(y = sd(drawsSI$theta), x = mean(drawsSI$theta), pch = 19,
-     xlab = "E(theta|Y)", ylab = "SD(theta|Y)", 
-     main = "Mean vs SD of Theta")
+plot(y = sd(draws_si$theta), x = mean(draws_si$theta), pch = 19,
+  xlab = "E(theta|Y)", ylab = "SD(theta|Y)", 
+  main = "Mean vs SD of Theta")
 
 # Comparing EAP Estimates with Sum Scores
-plot(y = rowSums(items_bin), x = mean(drawsSI$theta), pch = 19,
-     ylab = "Sum Score", xlab = expression(theta))
+plot(y = rowSums(items_bin), x = mean(draws_si$theta), pch = 19,
+  ylab = "Sum Score", xlab = expression(theta))
 
 ###############################################
 # 2PL (slope/intercept)                       # 
@@ -293,7 +290,7 @@ plot(y = rowSums(items_bin), x = mean(drawsSI$theta), pch = 19,
 # IRT Model Syntax (slope/intercept form )
 # with discrimination/difficulty calculated in the generated quantities block
 
-fml_2PL_SI2 <- "
+fml_2pl_si2 <- "
 
 data {
   int<lower=0> P;   // number of observations
@@ -342,11 +339,11 @@ generated quantities {
 "
 
 # compile model
-mdl_2PL_SI2 <- cmdstan_model(stan_file = write_stan_file(fml_2PL_SI2))
+mdl_2pl_si2 <- cmdstan_model(stan_file = write_stan_file(fml_2pl_si2))
 
 # fit model to data
-fit_2PL_SI2 <- mdl_2PL_SI2$sample(
-  data = stanls_2PL_SI,
+fit_2pl_si2 <- mdl_2pl_si2$sample(
+  data = stanls_2pl_si,
   seed = 112,
   chains = 4,
   parallel_chains = 4,
@@ -356,19 +353,19 @@ fit_2PL_SI2 <- mdl_2PL_SI2$sample(
 )
 
 # diagnostics 
-max(fit_2PL_SI2$summary()$rhat, na.rm = TRUE)
-fit_2PL_SI2$cmdstan_diagnose()
-fit_2PL_SI2$diagnostic_summary()
+max(fit_2pl_si2$summary()$rhat, na.rm = TRUE)
+fit_2pl_si2$cmdstan_diagnose()
+fit_2pl_si2$diagnostic_summary()
 
 # item parameter results
-print(fit_2PL_SI2$summary(variables = c("a", "b")), n = Inf)
+print(fit_2pl_si2$summary(variables = c("a", "b")), n = Inf)
 
 # extract posterior draws
-drawsSI2 <- posterior::as_draws_rvars(fit_2PL_SI2$draws())
+draws_si2 <- posterior::as_draws_rvars(fit_2pl_si2$draws())
 
 #  2PL discrimination/difficulty j
 
-fml_2PL_DD <- "
+fml_2pl_dd <- "
 
 data {
   int<lower=0> P;                 // number of observations
@@ -412,9 +409,8 @@ generated quantities{
 }
 
 "
-
 # compile modeo
-mdl_2PL_DD <- cmdstan_model(stan_file = write_stan_file(fml_2PL_DD))
+mdl_2pl_dd <- cmdstan_model(stan_file = write_stan_file(fml_2pl_dd))
 
 # item intercept hyperparameters
 b_mean_hp <- 0
@@ -430,7 +426,7 @@ a_mean <- rep(a_mean_hp, I)
 a_var_hp <- 1000
 A_cov <- diag(a_var_hp, I)
 
-stanls_2PL_DD = list(
+stanls_2pl_dd = list(
   "P" = P,
   "I" = I,
   "Y" = t(items_bin), 
@@ -440,8 +436,8 @@ stanls_2PL_DD = list(
   "A_cov" = A_cov
 )
 
-fit_2PL_DD <- mdl_2PL_DD$sample(
-  data = stanls_2PL_DD,
+fit_2pl_dd <- mdl_2pl_dd$sample(
+  data = stanls_2pl_dd,
   seed = 02112022,
   chains = 4,
   parallel_chains = 4,
@@ -455,55 +451,54 @@ fit_2PL_DD <- mdl_2PL_DD$sample(
 ###############
 
 # checking convergence
-fit_2PL_DD$summary()
-fit_2PL_DD$cmdstan_diagnose()
-fit_2PL_DD$diagnostic_summary()
-max(fit_2PL_DD$summary()$rhat, na.rm = TRUE)
+fit_2pl_dd$summary()
+fit_2pl_dd$cmdstan_diagnose()
+fit_2pl_dd$diagnostic_summary()
+max(fit_2pl_dd$summary()$rhat, na.rm = TRUE)
 
 ###################
 # item parameters #
 ###################
 
 # summary of the item parameters
-fit_2PL_DD$summary("a") # E(Y| theta = 0)
-fit_2PL_DD$summary("b") # E(Y| theta + 1) - E(Y| theta)
+fit_2pl_dd$summary("a") # E(Y| theta = 0)
+fit_2pl_dd$summary("b") # E(Y| theta + 1) - E(Y| theta)
 
 # extract posterior draws
-drawsDD <- posterior::as_draws_rvars(fit_2PL_DD$draws())
+draws_dd <- posterior::as_draws_rvars(fit_2pl_dd$draws())
 
 # fixed theta values
 theta_fixed <- seq(-3, 3, length.out = P)
 
 # drawing item characteristic curves for item
-drawsDD$logit <- drawsDD$mu + drawsDD$lambda * t(theta_fixed)
+draws_dd$logit <- draws_dd$mu + draws_dd$lambda * t(theta_fixed)
 # ...including estimation uncertainty in theta
-# drawsDD$y <- exp(drawsDD$logit) / (1 + exp(drawsDD$logit))
+# draws_dd$y <- exp(draws_dd$logit) / (1 + exp(draws_dd$logit))
 
 # comparing with other parameters estimated:
-plot(x = mean(drawsDD$b), y = mean(drawsSI2$b),
-     xlab = "Discrimination/Difficulty Model", 
-     ylab = "Slope/Intercept Model",
-     main = "Difficulty Parameter EAP Estimates"
+plot(x = mean(draws_dd$b), y = mean(draws_si2$b),
+  xlab = "Discrimination/Difficulty Model", 
+  ylab = "Slope/Intercept Model",
+  main = "Difficulty Parameter EAP Estimates"
 )
 
 # comparing with other parameters estimated:
-plot(x = mean(drawsDD$theta), y = mean(drawsSI2$theta),
-     xlab = "Discrimination/Difficulty Model", 
-     ylab = "Slope/Intercept Model",
-     main = "Difficulty Parameter EAP Estimates")
+plot(x = mean(draws_dd$theta), y = mean(drawsSI2$theta),
+  xlab = "Discrimination/Difficulty Model", 
+  ylab = "Slope/Intercept Model",
+  main = "Difficulty Parameter EAP Estimates")
 
 # comparing with other parameters estimated:
-plot(x = sd(drawsDD$theta), y = sd(drawsSI2$theta),
-     xlab = "Discrimination/Difficulty Model", 
-     ylab = "Slope/Intercept Model",
-     main = "Theta SD Estimates")
+plot(x = sd(draws_dd$theta), y = sd(drawsSI2$theta),
+  xlab = "Discrimination/Difficulty Model", 
+  ylab = "Slope/Intercept Model",
+  main = "Theta SD Estimates")
 
 ########################
 # Auxiliary Statistic  #        
 ########################
 
-fml_2PL_DD2 <- "
-
+fml_2pl_dd2 <- "
 data {
   int<lower=0> P;               // number of observations
   int<lower=0> I;               // number of items
@@ -520,13 +515,12 @@ data {
 }
 
 parameters {
-  vector[P] theta;          // the latent variables (1/person)
+  vector[P] theta;          // the latent variables (one for each person)
   vector[I] a;              // the item intercepts (1/item)
   vector[I] b;               // item discriminations/loading (1/item)
 }
 
 model {
-  
   a ~ multi_normal(a_mean, A_cov); // item discrimination/factor loadings
   b ~ multi_normal(b_mean, B_cov);             // Prior for item intercepts
   
@@ -536,7 +530,6 @@ model {
     // Import: If we loop with '[i]' we access every person! (row major order)
     Y[i] ~ bernoulli_logit(a[i]*(theta - b[i]));
   }
-  
 }
 
 generated quantities{
@@ -566,24 +559,22 @@ generated quantities{
       // item information functions:
       item_info[v, i] = 
         item_info[v, i] + a[i]^2 * inv_logit(a[i] * (theta_fix[v] - b[i])) * 
-          (1 - inv_logit(a[i] * (theta_fix[v] - b[i])));
-        
+        (1 - inv_logit(a[i] * (theta_fix[v] - b[i])));
+      
       // test information functions:
       test_info[v] = test_info[v] + a[i]^2 * inv_logit(a[i] * (theta_fix[v] - b[i])) * (1 - inv_logit(a[i] * (theta_fix[v] - b[i])));
     }
   }
-  
 }
-
 "
 
 # Compile model
-mdl_2PL_DD2 <- cmdstan_model(stan_file = write_stan_file(fml_2PL_DD2))
+mdl_2pl_dd2 <- cmdstan_model(stan_file = write_stan_file(fml_2pl_dd2))
 
 # values for auxiliary statistics 
 theta_fix <- seq(-3, 3, length.out = P)
 
-stanls_2PL_DD2 = list(
+stanls_2pl_dd2 = list(
   "P" = P,
   "I" = I,
   "Y" = t(items_bin), 
@@ -595,8 +586,8 @@ stanls_2PL_DD2 = list(
   "theta_fix" = theta_fix 
 )
 
-fit_2PL_DD2 <- mdl_2PL_DD2$sample(
-  data = modelIRT_2PL_DD2_data,
+fit_2pl_dd2 <- mdl_2pl_dd2$sample(
+  data = stanls_2pl_dd2,
   seed = 02112022,
   chains = 4,
   parallel_chains = 4,
@@ -611,107 +602,87 @@ fit_2PL_DD2 <- mdl_2PL_DD2$sample(
 ###############
 
 # checking cnvergence
-fit_2PL_DD2$summary()
-fit_2PL_DD2$cmdstan_diagnose()
-fit_2PL_DD2$diagnostic_summary()
-max(fit_2PL_DD2$summary()$rhat, na.rm = TRUE)
+fit_2pl_dd2$summary()
+fit_2pl_dd2$cmdstan_diagnose()
+fit_2pl_dd2$diagnostic_summary()
+max(fit_2pl_dd2$summary()$rhat, na.rm = TRUE)
 
 ###################
 # item parameters #
 ###################
 
 # summary of the item parameters
-fit_2PL_DD2$summary("a") # E(Y| theta = 0)
-fit_2PL_DD2$summary("b") # E(Y| theta + 1) - E(Y| theta)
+fit_2pl_dd2$summary("a") # E(Y| theta = 0)
+fit_2pl_dd2$summary("b") # E(Y| theta + 1) - E(Y| theta)
 
 # extract posterior draws
-drawsDD2 <- posterior::as_draws_rvars(fit_2PL_DD2$draws())
+draws_dd2 <- posterior::as_draws_rvars(fit_2pl_dd2$draws())
 
 # fixed theta values
 theta_fixed <- seq(-3, 3, length.out = P)
 
 # drawing item characteristic curves for item
-drawsDD2$logit <- drawsDD2$mu + drawsDD2$lambda * t(theta_fixed)
+draws_dd2$logit <- draws_dd2$mu + draws_dd2$lambda * t(theta_fixed)
 # ...including estimation uncertainty in theta
-# drawsDD$y <- exp(drawsDD$logit) / (1 + exp(drawsDD$logit))
+# draws_dd$y <- exp(draws_dd$logit) / (1 + exp(draws_dd$logit))
 
 # TCC Spaghetti Plots
 plot(x = theta_fix, 
-     y = mean(drawsDD2$TCC),
-     xlab = expression(theta), 
-     ylab = "Expected Score", type = "l",
-     main = "Test Characteristic Curve", lwd = 4)
-seq_len(100)
-tcc_arr <- draws_of(drawsDD2$TCC)
+   y = mean(draws_dd2$TCC),
+   xlab = expression(theta), 
+   ylab = "Expected Score", type = "l",
+   main = "Test Characteristic Curve", lwd = 4)
+tcc_arr <- draws_of(draws_dd2$TCC)
+# Include uncertainty
 for (d in seq_len(100)){
   lines(theta_fix, y = tcc_arr[d, ], col = "steelblue")
 }
-lines(theta_fix, y = mean(drawsDD2$TCC), lwd = 4)
+lines(theta_fix, y = mean(draws_dd2$TCC), lwd = 4)
 legend(
   x = -3, y = 7,
   legend = c("Posterior Draw", "EAP"), col = c(1, 2), lty = c(1, 2), lwd = 5
 )
 
-
-# TODO
-# TODO
-# TODO
-
 # ICC Spaghetti Plots
-item_no = 1
-itemLabel = paste0("Item ", item)
-iccSamples = fit_2PL_DD2$draws(variables = "item_info", format = "draws_matrix")
-iccNames = colnames(iccSamples)
-itemSamples = iccSamples[,iccNames[grep(pattern = ",1]", x = iccNames)]]
-
-maxInfo = max(apply(X = itemSamples, MARGIN = 2, FUN = max))
+itemno <- 1
 
 plot(x = theta_fix, 
-     y = itemSamples[1,],
+     y = mean(draws_dd2$item_info[,itemno]),
      xlab = expression(theta), 
      ylab = "Information", type = "l",
      main = paste0(itemLabel, " Information Function"), lwd = 2,
      ylim = c(0,maxInfo+.5))
-
-for (draw in 1:nrow(itemSamples)){
-  lines(x = theta_fix,
-        y = itemSamples[draw,])
+item_info_arr = draws_of(draws_dd2$item_info[, itemno])
+# Include uncertainty
+for (d in seq_len(100)) {
+  lines(x = theta_fix, y = item_info_arr[d, , ], col = "steelblue")
 }
-
 # EAP TCC
-lines(x = thetaVals, 
-      y = apply(X = itemSamples, MARGIN=2, FUN=mean),
-      lwd = 3, 
-      col = 2, 
-      lty = 3)
+lines(
+  x = theta_fix,
+  y = mean(draws_dd2$item_info[, 1]),
+  lwd = 7
+)
 
-legend(x = -3, y = maxInfo-.5, legend = c("Posterior Draw", "EAP"), col = c(1,2), lty = c(1,2), lwd=5)
-
-
-# TIF Spaghetti Plots
-tifSamples = modelIRT_2PL_DD2_samples$draws(variables = "testInfo", format = "draws_matrix")
-maxTIF = max(apply(X = tifSamples, MARGIN = 2, FUN = max))
-
-plot(x = thetaVals, 
-     y = tifSamples[1,],
-     xlab = expression(theta), 
-     ylab = "Information", type = "l",
-     main = "Test Information Function", lwd = 2,
-     ylim = c(0,maxTIF))
-
-for (draw in 1:nrow(tifSamples)){
-  lines(x = thetaVals,
-        y = tifSamples[draw,])
+# Visualize: Test Information Function
+plot(
+  x = theta_fix,
+  y = mean(draws_dd2$test_info),
+  xlab = expression(theta),
+  ylab = "Information", type = "l",
+  main = "Test Information Function", lwd = 2,
+  ylim = c(0, 500)
+)
+tif_arr = draws_of(draws_dd2$test_info)
+for (d in seq_len(100)) {
+  lines(x = theta_fix, y = tif_arr[d, ], col = "steelblue")
 }
-
 # EAP TIF
-lines(x = thetaVals, 
-      y = apply(X=tifSamples, MARGIN=2, FUN=mean),
-      lwd = 3, 
-      col = 2, 
-      lty = 3)
-
-legend(x = -3, y = maxTIF, legend = c("Posterior Draw", "EAP"), col = c(1,2), lty = c(1,2), lwd=5)
+lines(
+  x = theta_fix,
+  y = mean(draws_dd2$test_info),
+  lwd = 7
+)
 
 # EAP TCC
 plot(x = thetaVals, 
@@ -721,10 +692,14 @@ plot(x = thetaVals,
      main = "Test Information Function", 
      lwd = 2)
 
-# Other IRT Models ===========================================================
+####################
+# Other IRT Models #
+####################
+
+# TODO
 
 # 1PL Model:
-modelIRT_1PL_syntax = "
+modelIRT_1PL_syntax <- "
 
 data {
   int<lower=0> nObs;                 // number of observations
