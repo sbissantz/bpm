@@ -266,70 +266,26 @@ print(fit_2pl_si2$summary(variables = c("a", "b")), n = Inf)
 # extract posterior draws
 draws_si2 <- posterior::as_draws_rvars(fit_2pl_si2$draws())
 
-#  2PL discrimination/difficulty
+###############
+# IRT: 2PL DD #
+###############
+# Slope/intercept calculated in the generated quantities block
 
-fml_2pl_dd <- "
-
-data {
-  int<lower=0> P;                 // number of observations
-  int<lower=0> I;               // number of items
-  array[I, P] int<lower=0, upper=1>  Y; // item responses in a matrix
-
-  vector[I] a_mean;
-  matrix[I, I] A_cov;      // prior covariance matrix for coefficients
-  
-  vector[I] b_mean;         // prior mean vector for coefficients
-  matrix[I, I] B_cov;  // prior covariance matrix for coefficients
-}
-
-parameters {
-  vector[P] theta;                // LV (1/person)
-  vector[I] a;                 // item intercepts (1/item)
-  vector[I] b;             // item discriminations/factor loading (1/item)
-}
-
-model {
-  // Prior for item discrimination/factor loadings
-  a ~ multi_normal(a_mean, A_cov); 
-  b ~ multi_normal(b_mean, B_cov);             // Prior for item intercepts
-  
-  theta ~ normal(0, 1);    // Standadardized LV (with mean/sd specified)
-  
-  for (i in 1:I){
-    Y[i] ~ bernoulli_logit(a[i]*(theta - b[i]));
-  }
-  
-}
-
-generated quantities{
-  vector[I] lambda;
-  vector[I] mu;
-  
-  lambda = a;
-  for (i in 1:I){
-    mu[i] = -1*a[i]*b[i];
-  }
-}
-
-"
-# compile modeo
-mdl_2pl_dd <- cmdstan_model(stan_file = write_stan_file(fml_2pl_dd))
+# compile model
+mdl_2pl_dd <- cmdstan_model("./stan/4a/2pl_dd.stan", pedantic = TRUE)
 
 # item intercept hyperparameters
-b_mean_hp <- 0
-b_mean <- rep(b_mean_hp, I)
-
+b_mean <- rep(0, I)
 b_var_hp <- 1000
 B_cov = diag(b_var_hp, I)
 
 # item discrimination/factor loading hyperparameters
-a_mean_hp <- 0
-a_mean <- rep(a_mean_hp, I)
-
+a_mean <- rep(0, I)
 a_var_hp <- 1000
 A_cov <- diag(a_var_hp, I)
 
-stanls_2pl_dd = list(
+# stan list
+stanls_2pl_dd <- list(
   "P" = P,
   "I" = I,
   "Y" = t(items_bin), 
@@ -339,6 +295,7 @@ stanls_2pl_dd = list(
   "A_cov" = A_cov
 )
 
+# fit model to data
 fit_2pl_dd <- mdl_2pl_dd$sample(
   data = stanls_2pl_dd,
   seed = 02112022,
