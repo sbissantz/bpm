@@ -1,6 +1,6 @@
 
 #########
-# setup #
+# Setup #
 #########
 
 library(cmdstanr)
@@ -9,81 +9,94 @@ library(ggplot2)
 library(posterior)
 
 ########
-# data #
+# Data #
 ########
 
-# model the belief in conspiracy theories
-# assuming a normal binomial p.d. for the data
+# Model the belief in conspiracy theories,
+# Assuming a binomial p.d. for the data
 conspiracy_data <- read.csv("./data/conspiracies.csv")
 
-# only using the first 10 items
-# positive values mean resemble agreement
+# Only using the first 10 items
+# Positive values mean resemble agreement
 conspiracy_items <- conspiracy_data[, 1 : 10]
 
 # Number of items 
 I <- ncol(conspiracy_items)
-# number of respondents
+
+# Number of respondents
 P <- nrow(items_bin)
 
 # NEVER DO THIS IN PRACTICE!
-# converting to dichotomous responses
-# here 0 == strongly disagree or disagree;
-# 1 == neither, agree, and strongly disagree
+# Converting polytomous to dichotomous responses, loses data
+# 0: strongly disagree or disagree;
+# 1: neither, agree, and strongly disagree
 items_bin <- conspiracy_items
-for (var in seq_len(10)) {
-  items_bin[which(items_bin[, var] <= 3), var] = 0
-  items_bin[which(items_bin[, var] > 3), var] = 1
+for (var in seq_len(I)) {
+  items_bin[which(items_bin[, var] <= 3), var] <- 0
+  items_bin[which(items_bin[, var] > 3), var] <- 1
 }
 
-# examining data after transformation
+# Examining data after transformation
 table(items_bin$PolConsp1, items_bin$PolConsp1)
 
-# item means
+# Item means
+# Note: the mean is the proportion of respondents who agreed with the item
 colMeans(items_bin)
 
 #################################
 # Example: Likelihood Functions #
 #################################
 
-# examine the data likelihood for the factor loading of the 1st item, lambda_1
+# Examine the data likelihood for the factor loading of the 1st item, lambda_1
 
 # We have the jont p.m.f. f(Y_p| lambda_1, mu_1 theta_p)
 # We fix mu_1 and theta_p
 # ...for lambda1
-mu1 <- -2 # fix
-theta <- rnorm(P, 0, 1) # fix
+mu_1 <- -2 # fix
+theta <- rnorm(P, 0, 1) # fix as standardized LV
+hist(theta)
 
-# Assuming that observations are independent
+# Assumption: observations are independent 
 # f(Y_p| lambda_1, theta_p) = prod_{p=1}^{P} f(Y_p| lambda_1, theta_p)
 
 # We let the loadings vary, to find the maximum (likelihood estimate)
-lambda <- seq(-2, 2, .01) # Loadings
+lambda_1 <- seq(-2, 2, .01) # Loadings
 log_lik <- vector("numeric", I)
 
 # par <- 1 # for demonstrating
-for (par in seq_along(lambda)) {
-  # calculate the log-odd or logits
-  logit <- mu1 + lambda[par] * theta
-  # Convert to probability
-  p <- exp(logit) / (1 + exp(logit))
-  # Plug the probability into the binomial p.m.f.
-  # The product becomes a sum because of the log: log-likelihood
-  LL_bern <- sum(dbinom(items_bin$PolConsp1, 1, p, log = TRUE))
-  log_lik[par] <- LL_bern
+for (par in seq_along(lambda_1)) {
+    # calculate the log-odd or logits
+    logit <- mu_1 + lambda_1[par] * theta
+    # Convert to probability
+    p <- exp(logit) / (1 + exp(logit))
+    # Plug the probability into the binomial p.m.f.
+    # Define the log likelihood function
+    # f(Y_p| lambda_1, theta_p) = prod_{p=1}^{P} f(Y_p| lambda_1, theta_p)
+    # The product becomes a sum because of the log: log-likelihood
+    # log f(Y_p| lambda_1, theta_p) = sum{p=1}^{P} f(Y_p| lambda_1, theta_p)
+    LL_bern <- sum( # Sum over all persons
+        dbinom( # Take the value of the binomial p.m.f.
+            items_bin$PolConsp1, 1, p, # evaluate at all persons
+            log = TRUE # on the log scale
+        )
+    )
+    log_lik[par] <- LL_bern
 }
 
 # visualize
-plot(x = lambda, y = log_lik, type = "l")
+plot(x = lambda_1, y = log_lik, type = "l") # find the maximum  of LL
+plot(x = lambda_1, y = -log_lik, type = "l") # find the maximum  of -LL
 
 # examine the data likelihood for latent trait of the 2nd person, lambda_1
 
 # We have the jont p.m.f. f(Y_p| lambda_1, mu_1 theta_p)
 # We fix mu and lambda 
-# .... for theta2
+# .... for theta_2
 mu <- runif(I, -2, 0) # fix
 lambda <- runif(I, 0, 2) # fix
 person <- 2 # fix
 
+# We let the latent trait vary, to find the maximum (likelihood estimate)
 theta <- seq(-3, 3, .01)
 log_lik <- NULL
 LL_theta <- vector("numeric", P)
@@ -100,6 +113,7 @@ for (par in seq_along(theta)) {
 
 # Visualize
 plot(x = theta, y = log_lik, type = "l")
+plot(x = -theta, y = log_lik, type = "l") # No clear minimum!
 
 ################
 # IRT: 2 PL SI #
@@ -117,10 +131,10 @@ lambda_mean <- rep(0, I)
 Lambda_cov <- diag(1000, I)
 
 #############
-# stan list #
+# Stan list #
 #############
 
-# build r list for stan
+# Build r list for stan
 stanls_2pl_si <- list(
   "P" = P,
   "I" = I,
@@ -132,7 +146,7 @@ stanls_2pl_si <- list(
   "Lambda_cov" = Lambda_cov 
 )
 
-# run MCMC chain (sample from posterior p.d.)
+# Run MCMC chain (sample from posterior p.d.)
 fit_2pl_si <- mdl_2pl_si$sample(
   data = stanls_2pl_si,
   seed = 02112022,
@@ -144,74 +158,92 @@ fit_2pl_si <- mdl_2pl_si$sample(
   init = function() list(lambda = rnorm(I, mean = 5, sd = 1))
 )
 
-# assess convergence: summary of all parameters
-fit_2pl_si$summary()
+###############
+# Diagnostics #
+###############
+
+# Assess convergence: summary of all parameters
 fit_2pl_si$cmdstan_diagnose()
 fit_2pl_si$diagnostic_summary()
 
-# checking convergence
+# Checking convergence
 max(fit_2pl_si$summary()$rhat, na.rm = TRUE)
 
-# item parameter results
-print(fit_2pl_si$summary(variables = c("mu", "lambda")), n = Inf)
-
 ###################
-# item parameters #
+# Item parameters #
 ###################
 
-# summary of the item parameters
+# Summary of the item intercepts 
 fit_2pl_si$summary(variables = "mu") # E(Y| theta = 0)
+
+# Interpret item intercept 1 (remember: standardized LV): 
+# "For someone with an average amount of the tendency to agree with conspiracy
+# theories we would expect their log odds/logits for item one to be -2.46
+fit_2pl_si$summary(variables = "mu")[1,]
+# That is a ... percent chance to say "1" to the first item
+plogis(-2.46) * 100
+
+# Summary of the item discrimination/loadings 
 fit_2pl_si$summary(variables = "lambda") # E(Y| theta + 1) - E(Y| theta)
 
-# extract posterior draws
-drawsSI <- posterior::as_draws_rvars(fit_2pl_si$draws())
+# Interpret item discrimination/loading 1: 
+# "If we compare two persons that differ by one (standard deviation) in their
+# tendency to believe in conspiracy theories, we would expect the one with the
+# higher tendency to have a 1.91 higher change to say "1" to item 1"
+fit_2pl_si$summary(variables = "lambda")[1,] 
+# That is a ... percent higher chance to say "1" to the first item
+plogis(1.91) * 100
 
-# fixed theta values
+# Extract posterior draws
+draws_si <- posterior::as_draws_rvars(fit_2pl_si$draws())
+
+# Fixed theta values
 theta_fixed <- seq(-3, 3, length.out = P)
 
-# drawing item characteristic curves for item
-drawsSI$logit <- drawsSI$mu + drawsSI$lambda * t(theta_fixed)
+# Drawing item characteristic curves for item
+draws_si$logit <- drawsSI$mu + drawsSI$lambda * t(theta_fixed)
 # ...including estimation uncertainty in theta
 # draws$logit <- draws$mu + draws$lambda * t(draws$theta)
 
 # Cannot use logistic function directly, because of the rvar data type
-drawsSI$y <- exp(drawsSI$logit) / (1 + exp(drawsSI$logit))
+draws_si$y <- exp(drawsSI$logit) / (1 + exp(drawsSI$logit))
 
-# Visualize the item characteristic curve for item 5
+# Bernoulli ICC (item characteristic curve) for item 5
+# i.e.: E(Y_5| theta) -- on the probability scale
 itemno <- 5
-plot(
-  x = theta_fixed, y = mean(drawsSI$y[itemno, ]), type = "l",
+plot(theta_fixed, mean(draws_si$y[itemno, ]), type = "l",
   main = paste("Item", itemno, "ICC"), ylim = c(0, 1), lwd = 2,
   xlab = expression(theta),
   ylab = paste("Item", itemno, "Retrodicted Value")
 )
-yno_arr <- posterior::draws_of(drawsSI$y[itemno, ])
+yno_arr <- posterior::draws_of(draws_si$y[itemno, ])
 for (d in 1:100) {
   lines(theta_fixed, yno_arr[d, 1, ], col = "steelblue", lwd = 0.5)
 }
-lines(theta_fixed, mean(drawsSI$y[itemno, ]), lwd = 5)
+lines(theta_fixed, mean(draws_si$y[itemno, ]), lwd = 5)
 legend(-3, 1,
   legend = c("Posterior Draw", "EAP"),
   col = c("steelblue", "black"), lty = c(1, 1), lwd = 5
 )
 
-# investigating item parameters
-#
+# Investigating item parameters
 
-# item intercepts
+# Item intercepts
 mcmc_trace(fit_2pl_si$draws(variables = "mu"))
 mcmc_dens(fit_2pl_si$draws(variables = "mu"))
 # Results are pretty skewed
 
-# loadings
+# Loadings
 mcmc_trace(fit_2pl_si$draws(variables = "lambda"))
 mcmc_dens(fit_2pl_si$draws(variables = "lambda"))
 # Results are pretty skewed
 
-# bivariate posterior p.d.
+# Bivariate posterior p.d.
 mcmc_pairs(fit_2pl_si$draws(), pars = c("mu[1]", "lambda[1]"))
 # Even though we specified the prior p.d.s for the parameter independently, the
-# posterior p.d.s are not independent
+# posterior p.d.s are not independent.
+# Which makes sense -- we use lines; thus slope and intercepts are not 
+# independent If the slope is high, the intercept is low and vice versa.
 
 # investigating the latent variables
 fit_2pl_si$summary(variables = "theta")
@@ -221,6 +253,17 @@ hist(mean(draws_si$theta),
   main = "EAP Estimates of Theta",
   xlab = expression(theta)
 )
+theta_mean_arr <- draws_of(rvar_mean(draws_si$theta))
+for (i in 1:20) {
+  # Estimation uncertainty in the EAP estimates of theta
+  abline(v = theta_mean_arr[i], col = "steelblue", lwd = 2)
+}
+# Mean of the EAP estimates of theta (mean of posterior means)
+abline(v = mean(theta_mean_arr), lwd = 5)
+# The average tendency to believe in conspiracies across persons is estimated 
+# to be very low -- centered at 0, but quite skewed.
+
+# TODO TODO TODO
 
 # Comparing two posterior distributions
 plot(c(-3, 3), c(0, 2), type = "n", xlab = expression(theta), ylab = "Density")
