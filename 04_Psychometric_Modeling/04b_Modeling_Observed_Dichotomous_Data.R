@@ -38,6 +38,7 @@ for (var in seq_len(I)) {
 
 # Examining data after transformation
 table(items_bin$PolConsp1, items_bin$PolConsp1)
+# Most peopls disagree with the first item
 
 # Item means
 # Note: the mean is the proportion of respondents who agreed with the item
@@ -201,12 +202,12 @@ draws_si <- posterior::as_draws_rvars(fit_2pl_si$draws())
 theta_fixed <- seq(-3, 3, length.out = P)
 
 # Drawing item characteristic curves for item
-draws_si$logit <- drawsSI$mu + drawsSI$lambda * t(theta_fixed)
+draws_si$logit <- draws_si$mu + draws_si$lambda * t(theta_fixed)
 # ...including estimation uncertainty in theta
 # draws$logit <- draws$mu + draws$lambda * t(draws$theta)
 
 # Cannot use logistic function directly, because of the rvar data type
-draws_si$y <- exp(drawsSI$logit) / (1 + exp(drawsSI$logit))
+draws_si$y <- exp(draws_si$logit) / (1 + exp(draws_si$logit))
 
 # Bernoulli ICC (item characteristic curve) for item 5
 # i.e.: E(Y_5| theta) -- on the probability scale
@@ -263,21 +264,32 @@ abline(v = mean(theta_mean_arr), lwd = 5)
 # The average tendency to believe in conspiracies across persons is estimated 
 # to be very low -- centered at 0, but quite skewed.
 
-# TODO TODO TODO
-
-# Comparing two posterior distributions
+# Comparing two posterior p.d.s of theta
 plot(c(-3, 3), c(0, 2), type = "n", xlab = expression(theta), ylab = "Density")
 lines(density(draws_of(draws_si$theta[1])), col = "red", lwd = 3)
 lines(density(draws_of(draws_si$theta[2])), col = "blue", lwd = 3)
+# Note the difference in the spread of the two posterior p.d.s
+# Theta 1 does not provide additional info beyond the prior, p.d., because
+# person 1 did not answer any items with a "1".
+person <- 1 ; items_bin[person, ]
 
 # Comparing EAP Estimates with Posterior SDs
-plot(y = sd(draws_si$theta), x = mean(draws_si$theta), pch = 19,
-  xlab = "E(theta|Y)", ylab = "SD(theta|Y)", 
-  main = "Mean vs SD of Theta")
+# Posterior SD is a clearly defined function of theta!
+# in MLE this is akin to the conditional S.E.M; each theta has a SE and the 
+# sizes vary depending on the value of theta!
+plot(mean(draws_si$theta), sd(draws_si$theta),
+  pch = 19,
+  xlab = "E(theta|Y)", ylab = "SD(theta|Y)",
+  main = "Mean vs SD of Theta"
+)
 
 # Comparing EAP Estimates with Sum Scores
-plot(y = rowSums(items_bin), x = mean(draws_si$theta), pch = 19,
-  ylab = "Sum Score", xlab = expression(theta))
+plot(mean(draws_si$theta), rowSums(items_bin),
+  pch = 19,
+  ylab = "Sum Score", xlab = expression(theta)
+)
+# The EAP estimate is not necessarily the sum score (non-linear trend).
+# In the Rasch model the sum score is still a sufficient statistic for theta
 
 ##################
 # IRT: 2PL SI II #
@@ -304,7 +316,8 @@ fit_2pl_si2$cmdstan_diagnose()
 fit_2pl_si2$diagnostic_summary()
 
 # item parameter results
-print(fit_2pl_si2$summary(variables = c("a", "b")), n = Inf)
+print(fit_2pl_si2$summary(variables = c("mu", "lambda")), n = Inf) # SI
+print(fit_2pl_si2$summary(variables = c("a", "b")), n = Inf) # DD
 
 # extract posterior draws
 draws_si2 <- posterior::as_draws_rvars(fit_2pl_si2$draws())
@@ -314,20 +327,20 @@ draws_si2 <- posterior::as_draws_rvars(fit_2pl_si2$draws())
 ###############
 # Slope/intercept calculated in the generated quantities block
 
-# compile model
+# Compile model
 mdl_2pl_dd <- cmdstan_model("./stan/4a/2pl_dd.stan", pedantic = TRUE)
 
-# item intercept hyperparameters
+# Item intercept hyperparameters
 b_mean <- rep(0, I)
 b_var_hp <- 1000
 B_cov = diag(b_var_hp, I)
 
-# item discrimination/factor loading hyperparameters
+# Item discrimination/factor loading hyperparameters
 a_mean <- rep(0, I)
 a_var_hp <- 1000
 A_cov <- diag(a_var_hp, I)
 
-# stan list
+# Stan list
 stanls_2pl_dd <- list(
   "P" = P,
   "I" = I,
@@ -338,7 +351,7 @@ stanls_2pl_dd <- list(
   "A_cov" = A_cov
 )
 
-# fit model to data
+# Fit model to data
 fit_2pl_dd <- mdl_2pl_dd$sample(
   data = stanls_2pl_dd,
   seed = 02112022,
@@ -350,24 +363,35 @@ fit_2pl_dd <- mdl_2pl_dd$sample(
 )
 
 ###############
-# diagnostics #
+# Diagnostics #
 ###############
 
-# checking convergence
-fit_2pl_dd$summary()
+# Checking convergence
 fit_2pl_dd$cmdstan_diagnose()
 fit_2pl_dd$diagnostic_summary()
 max(fit_2pl_dd$summary()$rhat, na.rm = TRUE)
 
 ###################
-# item parameters #
+# Item parameters #
 ###################
 
-# summary of the item parameters
-fit_2pl_dd$summary("a") # E(Y| theta = 0)
-fit_2pl_dd$summary("b") # E(Y| theta + 1) - E(Y| theta)
+# Summary of the discrimination/loading parameter
+fit_2pl_dd$summary("a")
 
-# extract posterior draws
+# Interpret the discrimination/loading parameter alpha_1:
+# The item has moderate capability to distinguish between individuals with 
+# lower and higher levels of conspiracy belief.
+fit_2pl_dd$summary("a")[1, ]
+
+# Summary of the difficulty parameter
+fit_2pl_dd$summary("b")
+
+# Interpret the difficulty parameter beta_1:
+# A respondent with a belief in conspiracies of 1.48 (on the theta scale: SD) 
+# has a 50% probability of agreeing with item 1
+fit_2pl_dd$summary("b")[1, ]
+
+# Extract posterior draws
 draws_dd <- posterior::as_draws_rvars(fit_2pl_dd$draws())
 
 # fixed theta values
@@ -378,28 +402,46 @@ draws_dd$logit <- draws_dd$mu + draws_dd$lambda * t(theta_fixed)
 # ...including estimation uncertainty in theta
 # draws_dd$y <- exp(draws_dd$logit) / (1 + exp(draws_dd$logit))
 
-# comparing with other parameters estimated:
-plot(x = mean(draws_dd$b), y = mean(draws_si2$b),
-  xlab = "Discrimination/Difficulty Model", 
-  ylab = "Slope/Intercept Model",
-  main = "Difficulty Parameter EAP Estimates"
-)
+##############
+# Comparison #
+##############
 
-# comparing with other parameters estimated:
-plot(
-  x = mean(draws_dd$theta), y = mean(drawsSI2$theta),
+# Comparing b EAP estimates
+cor(mean(draws_dd$b), mean(draws_si2$b))
+
+# Comparing with parameters estimates from 
+# Note: The jitter in the values comes from sampling variation
+plot(mean(draws_dd$b), mean(draws_si2$b),
   xlab = "Discrimination/Difficulty Model",
   ylab = "Slope/Intercept Model",
-  main = "Difficulty Parameter EAP Estimates"
+  main = "Difficulty Parameter EAP Estimates",
+  pch = 19, cex = 2, xlim = c(1, 2), ylim = c(1, 2)
 )
+abline(a = 0, b = 1, lty = 2, lwd = 2)
 
-# comparing with other parameters estimated:
-plot(
-  x = sd(draws_dd$theta), y = sd(drawsSI2$theta),
+# Comparing with other parameters estimated:
+# Note: The jitter in the values comes from sampling variation
+plot(mean(draws_dd$theta), mean(draws_si2$theta),
   xlab = "Discrimination/Difficulty Model",
   ylab = "Slope/Intercept Model",
-  main = "Theta SD Estimates"
+  main = "Difficulty Parameter EAP Estimates",
+  pch = 19, cex = 2, xlim = c(1, 2), ylim = c(1, 2)
 )
+abline(a = 0, b = 1, lty = 2, lwd = 2)
+
+# Comparing difficulty EAP estimates
+cor(mean(draws_dd$theta), mean(draws_si2$theta))
+cor(sd(draws_dd$theta), sd(draws_si2$theta))
+
+# Comparing with other parameters estimated:
+plot(sd(draws_dd$theta), sd(draws_si2$theta),
+  xlab = "Discrimination/Difficulty Model",
+  ylab = "Slope/Intercept Model",
+  main = "Theta SD Estimates",
+  pch = 19, cex = 2
+)
+
+# TODO TODO TODO
 
 ########################
 # Auxiliary Statistic  #        
