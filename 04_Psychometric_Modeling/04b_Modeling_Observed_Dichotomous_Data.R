@@ -519,11 +519,12 @@ generated quantities{
 
 # Compile model
 mdl_2pl_dd2 <- cmdstan_model(stan_file = write_stan_file(fml_2pl_dd2))
+mdl_2pl_dd2 <- cmdstan_model("./stan/4a/2pl_dd2.stan", pedantic = TRUE)
 
-# values for auxiliary statistics 
+# Values for auxiliary statistics 
 theta_fix <- seq(-3, 3, length.out = P)
 
-stanls_2pl_dd2 = list(
+stanls_2pl_dd2 <- list(
   "P" = P,
   "I" = I,
   "Y" = t(items_bin), 
@@ -562,6 +563,7 @@ max(fit_2pl_dd2$summary()$rhat, na.rm = TRUE)
 
 # summary of the item parameters
 fit_2pl_dd2$summary("a") # E(Y| theta = 0)
+
 fit_2pl_dd2$summary("b") # E(Y| theta + 1) - E(Y| theta)
 
 # extract posterior draws
@@ -593,59 +595,53 @@ legend(
 )
 
 # ICC Spaghetti Plots
-itemno <- 1
-
-plot(x = theta_fix, 
-     y = mean(draws_dd2$item_info[,itemno]),
+itemno <- 2
+item_info_arr <- draws_of(draws_dd2$item_info[, itemno])
+item_info_max <- max(item_info_arr)
+plot(theta_fix, mean(draws_dd2$item_info[,itemno]),
      xlab = expression(theta), 
      ylab = "Information", type = "l",
-     main = paste0(itemLabel, " Information Function"), lwd = 2,
-     ylim = c(0,maxInfo+.5))
-item_info_arr = draws_of(draws_dd2$item_info[, itemno])
+     main = paste0(itemno, " Information Function"), lwd = 2,
+     ylim = c(0, item_info_max))
 # Include uncertainty
 for (d in seq_len(100)) {
   lines(x = theta_fix, y = item_info_arr[d, , ], col = "steelblue")
 }
 # EAP TCC
-lines(
-  x = theta_fix,
-  y = mean(draws_dd2$item_info[, 1]),
-  lwd = 7
-)
+lines(theta_fix, mean(draws_dd2$item_info[, 1]), lwd = 7)
 
 # Visualize: Test Information Function
-plot(
-  x = theta_fix,
-  y = mean(draws_dd2$test_info),
+tif_arr <- draws_of(draws_dd2$test_info)
+tif_max <- max(tif_arr) 
+plot(theta_fix, mean(draws_dd2$test_info),
   xlab = expression(theta),
   ylab = "Information", type = "l",
   main = "Test Information Function", lwd = 2,
-  ylim = c(0, 500)
+  ylim = c(0, tif_max)
 )
-tif_arr = draws_of(draws_dd2$test_info)
 for (d in seq_len(100)) {
-  lines(x = theta_fix, y = tif_arr[d, ], col = "steelblue")
+  lines(theta_fix, tif_arr[d, ], col = "steelblue")
 }
 # EAP TIF
-lines(
-  x = theta_fix,
-  y = mean(draws_dd2$test_info),
-  lwd = 7
-)
+lines(theta_fix, mean(draws_dd2$test_info), lwd = 7)
 
 # EAP TCC
-plot(x = theta_fix, 
-     y = apply(X=tifSamples, MARGIN=2, FUN=mean),
+tcc_arr <- draws_of(draws_dd2$test_info)
+tcc_max <- max(tcc_arr)
+plot(theta_fix, mean(draws_dd2$test_info),
      xlab = expression(theta), 
      ylab = "Information", type = "l",
      main = "Test Information Function", 
      lwd = 2)
+for (d in seq_len(100)) {
+  lines(theta_fix, tif_arr[d, ], col = "steelblue")
+}
+# EAP TIF
+lines(theta_fix, mean(draws_dd2$test_info), lwd = 7)
 
 ####################
 # Other IRT Models #
 ####################
-
-# TODO
 
 # 1PL Model:
 modelIRT_1PL_syntax <- "
@@ -825,7 +821,3 @@ modelIRT_2PNO_samples = modelIRT_2PNO_stan$sample(
 max(modelIRT_2PNO_samples$summary(variables = c("theta", "b", "a"))$rhat, na.rm = TRUE)
 
 print(modelIRT_2PNO_samples$summary(variables = c("a", "b")), n=Inf)
-
-
-save.image("lecture04c.RData")
-
