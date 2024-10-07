@@ -23,9 +23,6 @@ conspiracy_items <- conspiracy_data[, 1 : 10]
 # Number of items 
 I <- ncol(conspiracy_items)
 
-# Number of respondents
-P <- nrow(items_bin)
-
 # NEVER DO THIS IN PRACTICE!
 # Converting polytomous to dichotomous responses, loses data
 # 0: strongly disagree or disagree;
@@ -35,6 +32,9 @@ for (var in seq_len(I)) {
   items_bin[which(items_bin[, var] <= 3), var] <- 0
   items_bin[which(items_bin[, var] > 3), var] <- 1
 }
+
+# Number of respondents
+P <- nrow(items_bin)
 
 # Examining data after transformation
 table(items_bin$PolConsp1, items_bin$PolConsp1)
@@ -121,7 +121,7 @@ plot(x = -theta, y = log_lik, type = "l") # No clear minimum!
 ################
 
 # compile model
-mdl_2pl_si <- cmdstan_model("./stan/4a/2pl_si.stan", pedantic = TRUE)
+mdl_2pl_si <- cmdstan_model("./stan/4b/2pl_si.stan", pedantic = TRUE)
 
 # item intercept hyperparameters
 mu_mean <- rep(0, I)
@@ -297,7 +297,7 @@ plot(mean(draws_si$theta), rowSums(items_bin),
 # Discrimination/difficulty calculated in the generated quantities block
 
 # compile model
-mdl_2pl_si2 <- cmdstan_model("./stan/4a/2pl_si2.stan", pedantic = TRUE)
+mdl_2pl_si2 <- cmdstan_model("./stan/4b/2pl_si2.stan", pedantic = TRUE)
 
 # fit model to data
 fit_2pl_si2 <- mdl_2pl_si2$sample(
@@ -328,7 +328,7 @@ draws_si2 <- posterior::as_draws_rvars(fit_2pl_si2$draws())
 # Slope/intercept calculated in the generated quantities block
 
 # Compile model
-mdl_2pl_dd <- cmdstan_model("./stan/4a/2pl_dd.stan", pedantic = TRUE)
+mdl_2pl_dd <- cmdstan_model("./stan/4b/2pl_dd.stan", pedantic = TRUE)
 
 # Item intercept hyperparameters
 b_mean <- rep(0, I)
@@ -379,7 +379,7 @@ max(fit_2pl_dd$summary()$rhat, na.rm = TRUE)
 fit_2pl_dd$summary("a")
 
 # Interpret the discrimination/loading parameter alpha_1:
-# The item has moderate capability to distinguish between individuals with 
+# The item has moderate capability to distinguish between individuals with
 # lower and higher levels of conspiracy belief.
 fit_2pl_dd$summary("a")[1, ]
 
@@ -441,101 +441,40 @@ plot(sd(draws_dd$theta), sd(draws_si2$theta),
   pch = 19, cex = 2
 )
 
-# TODO TODO TODO
-
 ########################
-# Auxiliary Statistic  #        
+# Auxiliary Statistic  #
 ########################
-
-fml_2pl_dd2 <- "
-data {
-  int<lower=0> P;               // number of observations
-  int<lower=0> I;               // number of items
-  array[I, P] int<lower=0, upper=1>  Y; // item responses in an array 
-
-  vector[I] a_mean;
-  matrix[I, I] A_cov;      // prior covariance matrix for coefficients
-  
-  vector[I] b_mean;         // prior mean vector for coefficients
-  matrix[I, I] B_cov;  // prior covariance matrix for coefficients
-  
-  int<lower=0> N_theta;        // n° of theta values for auxiliary statistics
-  vector[N_theta] theta_fix;   // values for auxiliary statistics
-}
-
-parameters {
-  vector[P] theta;          // the latent variables (one for each person)
-  vector[I] a;              // the item intercepts (1/item)
-  vector[I] b;               // item discriminations/loading (1/item)
-}
-
-model {
-  a ~ multi_normal(a_mean, A_cov); // item discrimination/factor loadings
-  b ~ multi_normal(b_mean, B_cov);             // Prior for item intercepts
-  
-  theta ~ normal(0, 1);    // Standardied LV, prior p.d. (mean/sd specified)
-  
-  for (i in 1:I){
-    // Import: If we loop with '[i]' we access every person! (row major order)
-    Y[i] ~ bernoulli_logit(a[i]*(theta - b[i]));
-  }
-}
-
-generated quantities{
-  vector[I] lambda;
-  vector[I] mu;
-  vector[N_theta] TCC;
-  matrix[N_theta, I] item_info;
-  vector[N_theta] test_info;
-  
-  for (v in 1:N_theta){
-    TCC[v] = 0.0;
-    // test info must start at -1 to include prior p.d. for theta
-    test_info[v] = -1.0;  
-    for (i in 1:I){
-      item_info[v, i] = 0.0;
-    }
-  }
-  
-  lambda = a;
-  for (i in 1:I){
-    mu[i] = -1*a[i]*b[i];
-    
-    for (v in 1:N_theta){
-      // test characteristic curve:
-      TCC[v] = TCC[v] + inv_logit(a[i]*(theta_fix[v]-b[i]));
-      
-      // item information functions:
-      item_info[v, i] = 
-        item_info[v, i] + a[i]^2 * inv_logit(a[i] * (theta_fix[v] - b[i])) * 
-        (1 - inv_logit(a[i] * (theta_fix[v] - b[i])));
-      
-      // test information functions:
-      test_info[v] = test_info[v] + a[i]^2 * inv_logit(a[i] * (theta_fix[v] - b[i])) * (1 - inv_logit(a[i] * (theta_fix[v] - b[i])));
-    }
-  }
-}
-"
 
 # Compile model
-mdl_2pl_dd2 <- cmdstan_model(stan_file = write_stan_file(fml_2pl_dd2))
-mdl_2pl_dd2 <- cmdstan_model("./stan/4a/2pl_dd2.stan", pedantic = TRUE)
+mdl_2pl_dd2 <- cmdstan_model("./stan/4b/2pl_dd2.stan", pedantic = TRUE)
 
-# Values for auxiliary statistics 
+# Item intercept hyperparameters
+b_mean <- rep(0, I)
+b_var_hp <- 1000
+B_cov = diag(b_var_hp, I)
+
+# Item discrimination/factor loading hyperparameters
+a_mean <- rep(0, I)
+a_var_hp <- 1000
+A_cov <- diag(a_var_hp, I)
+
+# Values for auxiliary statistics
 theta_fix <- seq(-3, 3, length.out = P)
 
+# Stan list
 stanls_2pl_dd2 <- list(
   "P" = P,
   "I" = I,
-  "Y" = t(items_bin), 
+  "Y" = t(items_bin),
   "b_mean" = b_mean,
   "B_cov" = B_cov,
   "a_mean" = a_mean,
   "A_cov" = A_cov,
   "N_theta" = length(theta_fix),
-  "theta_fix" = theta_fix 
+  "theta_fix" = theta_fix
 )
 
+# Fit model to the data
 fit_2pl_dd2 <- mdl_2pl_dd2$sample(
   data = stanls_2pl_dd2,
   seed = 02112022,
@@ -548,7 +487,7 @@ fit_2pl_dd2 <- mdl_2pl_dd2$sample(
 )
 
 ###############
-# diagnostics #
+# Diagnostics #
 ###############
 
 # checking cnvergence
@@ -558,15 +497,26 @@ fit_2pl_dd2$diagnostic_summary()
 max(fit_2pl_dd2$summary()$rhat, na.rm = TRUE)
 
 ###################
-# item parameters #
+# Item parameters #
 ###################
 
 # summary of the item parameters
 fit_2pl_dd2$summary("a") # E(Y| theta = 0)
 
+# Interpret the discrimination/loading parameter alpha_1:
+# The item has moderate capability to distinguish between individuals with
+# lower and higher levels of conspiracy belief.
+fit_2pl_dd2$summary("a")[1, ]
+
 fit_2pl_dd2$summary("b") # E(Y| theta + 1) - E(Y| theta)
 
-# extract posterior draws
+# Interpret the difficulty parameter beta_1:
+# A respondent with a belief in conspiracies of 1.48 (on the theta scale: SD) 
+# has a 50% probability of agreeing with item 1
+# Note: The person is above average (average: 1 – standardized LV)
+fit_2pl_dd2$summary("b")[1, ]
+
+# Extract posterior draws
 draws_dd2 <- posterior::as_draws_rvars(fit_2pl_dd2$draws())
 
 # fixed theta values
@@ -598,21 +548,21 @@ legend(
 itemno <- 2
 item_info_arr <- draws_of(draws_dd2$item_info[, itemno])
 item_info_max <- max(item_info_arr)
-plot(theta_fix, mean(draws_dd2$item_info[,itemno]),
+plot(theta_fix, mean(draws_dd2$item_info[, itemno]),
      xlab = expression(theta), 
      ylab = "Information", type = "l",
      main = paste0(itemno, " Information Function"), lwd = 2,
-     ylim = c(0, item_info_max))
+     ylim = c(-1, item_info_max))
 # Include uncertainty
 for (d in seq_len(100)) {
   lines(x = theta_fix, y = item_info_arr[d, , ], col = "steelblue")
 }
 # EAP TCC
-lines(theta_fix, mean(draws_dd2$item_info[, 1]), lwd = 7)
+lines(theta_fix, mean(draws_dd2$item_info[, itemno]), lwd = 7)
 
 # Visualize: Test Information Function
 tif_arr <- draws_of(draws_dd2$test_info)
-tif_max <- max(tif_arr) 
+tif_max <- 2000 
 plot(theta_fix, mean(draws_dd2$test_info),
   xlab = expression(theta),
   ylab = "Information", type = "l",
@@ -627,8 +577,9 @@ lines(theta_fix, mean(draws_dd2$test_info), lwd = 7)
 
 # EAP TCC
 tcc_arr <- draws_of(draws_dd2$test_info)
-tcc_max <- max(tcc_arr)
+tcc_max <- 2000 
 plot(theta_fix, mean(draws_dd2$test_info),
+     ylim = c(-1, tcc_max),
      xlab = expression(theta), 
      ylab = "Information", type = "l",
      main = "Test Information Function", 
@@ -643,122 +594,101 @@ lines(theta_fix, mean(draws_dd2$test_info), lwd = 7)
 # Other IRT Models #
 ####################
 
-# 1PL Model:
-modelIRT_1PL_syntax <- "
+#############################
+# IRT: 1PL DD (Rasch model) #
+#############################
 
-data {
-  int<lower=0> nObs;                 // number of observations
-  int<lower=0> nItems;               // number of items
-  array[nItems, nObs] int<lower=0, upper=1>  Y; // item responses in a matrix
-  
-  vector[nItems] meanB;         // prior mean vector for coefficients
-  matrix[nItems, nItems] covB;  // prior covariance matrix for coefficients
-}
+# Compile model
+mdl_1pl_dd <- cmdstan_model("./stan/4b/1pl_dd.stan", pedantic = TRUE)
 
-parameters {
-  vector[nObs] theta;                // the latent variables (one for each person)
-  vector[nItems] b;             // the factor loadings/item discriminations (one for each item)
-}
+# Item intercept hyperparameters
+b_mean <- rep(0, I)
+b_var_hp <- 1000
+B_cov = diag(b_var_hp, I)
 
-model {
-  b ~ multi_normal(meanB, covB);             // Prior for item intercepts
-  theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
-  
-  for (item in 1:nItems){
-    Y[item] ~ bernoulli(inv_logit(theta - b[item]));
-  }
-  
-}
-
-"
-
-modelIRT_1PL_stan = cmdstan_model(stan_file = write_stan_file(modelIRT_1PL_syntax))
-
-modelIRT_1PL_data = list(
-  nObs = nObs,
-  nItems = nItems,
-  Y = t(conspiracyItemsDichtomous), 
-  meanB = bMeanVecHP,
-  covB = bCovarianceMatrixHP
+# Stan list
+stanls_1pl_dd <- list(
+  "P" = P,
+  "I" = I,
+  "Y" = t(items_bin),
+  "b_mean" = b_mean,
+  "B_cov" = B_cov 
 )
 
-modelIRT_1PL_samples = modelIRT_1PL_stan$sample(
-  data = modelIRT_1PL_data,
+# Fit the model to the data
+fit_1pl_dd <- mdl_1pl_dd$sample(
+  data = stanls_1pl_dd,
   seed = 021120221,
   chains = 4,
   parallel_chains = 4,
-  iter_warmup = 5000,
-  iter_sampling = 5000
+  iter_warmup = 3000,
+  iter_sampling = 2000
 )
 
-# checking convergence
-max(modelIRT_1PL_samples$summary(variables = c("theta", "b"))$rhat, na.rm = TRUE)
+###############
+# Diagnostics #
+###############
 
-modelIRT_1PL_samples$summary(variables = c("b"))
+fit_1pl_dd$summary()
+fit_1pl_dd$cmdstan_diagnose()
+fit_1pl_dd$diagnostic_summary()
+max(fit_1pl_dd$summary()$rhat, na.rm = TRUE)
 
-# 3PL Model:
-modelIRT_3PL_syntax = "
+#####################
+# Person parameters #
+#####################
 
-data {
-  int<lower=0> nObs;                 // number of observations
-  int<lower=0> nItems;               // number of items
-  array[nItems, nObs] int<lower=0, upper=1>  Y; // item responses in a matrix
-  
-  vector[nItems] meanA;
-  matrix[nItems, nItems] covA;      // prior covariance matrix for coefficients
-  
-  vector[nItems] meanB;         // prior mean vector for coefficients
-  matrix[nItems, nItems] covB;  // prior covariance matrix for coefficients
-}
+# Interpret the difficulty parameter beta_1:
+# A respondent with a belief in conspiracies of 1.99 (on the theta scale: SD) 
+# has a 50% probability of agreeing with item 1
+# Note: The person is above average (average: 1 – standardized LV)
+fit_1pl_dd$summary("b")[1, ]
 
-parameters {
-  vector[nObs] theta;                // the latent variables (one for each person)
-  vector[nItems] a;
-  vector[nItems] b;             // the factor loadings/item discriminations (one for each item)
-  vector<lower=0, upper=1>[nItems] c;
-}
+################################
+# IRT: 3PL DD (Birnbaum model) #
+################################
 
-model {
-  a ~ multi_normal(meanA, covA);             // Prior for item intercepts
-  b ~ multi_normal(meanB, covB);             // Prior for item intercepts
-  c ~ beta(1,1);                              // Simple prior for c parameter
-  
-  theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
-  
-  for (item in 1:nItems){
-    Y[item] ~ bernoulli(c[item] + (1-c[item])*inv_logit(a[item]*(theta - b[item])));
-  }
-  
-}
+# Compile the model
+mdl_3pl_dd <- cmdstan_model("./stan/4b/3pl_dd.stan", pedantic = TRUE)
 
-"
-
-modelIRT_3PL_stan = cmdstan_model(stan_file = write_stan_file(modelIRT_3PL_syntax))
-
-modelIRT_3PL_data = list(
-  nObs = nObs,
-  nItems = nItems,
-  Y = t(conspiracyItemsDichtomous), 
-  meanB = bMeanVecHP,
-  covB = bCovarianceMatrixHP,
-  meanA = aMeanVecHP,
-  covA = aCovarianceMatrixHP
+# Stan list
+stanls_3pl_dd <- list(
+  "P" = P,
+  "I" = I,
+  "Y" = t(items_bin),
+  "b_mean" = b_mean,
+  "B_cov" = B_cov,
+  "a_mean" = a_mean,
+  "A_cov" = A_cov
 )
 
-modelIRT_3PL_samples = modelIRT_3PL_stan$sample(
-  data = modelIRT_3PL_data,
+# Fit the model to the data
+fit_3pl_dd <- mdl_3pl_dd$sample(
+  data = stanls_3pl_dd,
   seed = 021120222,
   chains = 4,
   parallel_chains = 4,
-  iter_warmup = 5000,
-  iter_sampling = 5000,
-  init = function() list(a=rnorm(nItems, mean=5, sd=1))
+  iter_warmup = 3000,
+  iter_sampling = 2000,
+  init = function() list("a" = rnorm(I, mean = 5, sd = 1))
 )
 
-# checking convergence
-max(modelIRT_3PL_samples$summary(variables = c("theta", "b", "a", "c"))$rhat, na.rm = TRUE)
+###############
+# Diagnostics #
+###############
 
-print(modelIRT_3PL_samples$summary(variables = c("a", "b", "c")), n=Inf)
+fit_3pl_dd$summary()
+fit_3pl_dd$cmdstan_diagnose()
+fit_3pl_dd$diagnostic_summary()
+max(fit_3pl_dd$summary()$rhat, na.rm = TRUE)
+
+###########
+# Summary #
+###########
+
+print(fit_3PL$summary(variables = c("a", "b", "c")), n = Inf)
+
+# TODO TODO TODO
 
 # Two-Parameter Normal Ogive Model:
 modelIRT_2PNO_syntax = "
