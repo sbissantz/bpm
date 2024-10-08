@@ -1,6 +1,6 @@
 
 ########
-# data #
+# Data #
 ########
 
 library(cmdstanr)
