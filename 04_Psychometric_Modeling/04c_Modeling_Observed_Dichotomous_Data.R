@@ -120,10 +120,10 @@ plot(x = -theta, y = log_lik, type = "l") # No clear minimum!
 # IRT: 2 PL SI #
 ################
 
-# compile model
+# Compile model
 mdl_2pl_si <- cmdstan_model("./stan/4c/2pl_si.stan", pedantic = TRUE)
 
-# item intercept hyperparameters
+# Item intercept hyperparameters
 mu_mean <- rep(0, I)
 Mu_cov <- diag(1000, I)
 
