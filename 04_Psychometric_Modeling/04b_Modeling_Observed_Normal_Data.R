@@ -129,6 +129,10 @@ plot(theta_fixed, mean(draws_cfa$yhat[itemno,]),
      ylim = c(-2,8), xlab = expression(theta),
 )
 
+# Use E() instead of mean() with r.v.?
+plot(theta_fixed, E(draws_cfa$yhat[itemno,]),
+     ylim = c(-2,8), xlab = expression(theta),
+)
 
 
 # Define sequence of item numbers
