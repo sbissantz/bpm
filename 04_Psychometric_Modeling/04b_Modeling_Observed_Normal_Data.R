@@ -37,7 +37,7 @@ psi_rate <- rep(0.01, I)
 #######
 # CFA #
 #######
-
+conspiracy_items
 # Compile model into executable
 mdl_cfa <- cmdstan_model("./stan/4b/cfa.stan", pedantic = TRUE)
 
@@ -56,7 +56,7 @@ stanls_cfa <- list(
 # Fit the model to the data
 fit_cfa <- mdl_cfa$sample(
   data = stanls_cfa,
-  seed = 112,
+  seed = 09102022,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 2000,
@@ -67,22 +67,71 @@ fit_cfa <- mdl_cfa$sample(
 # Diagnostics #
 ###############
 
-# todo todo todo
+# Assess convergence: summary of all parameters
+fit_cfa$cmdstan_diagnose()
+fit_cfa$diagnostic_summary()
 
-# checking convergence
+# Checking convergence
 max(fit_cfa$summary()$rhat, na.rm = TRUE)
 
-# item parameter results
-print(fit_cfa$summary(variables = c("mu", "lambda", "psi")), n = Inf)
+###################
+# Item parameters #
+###################
 
-# showing relationship between item means and mu parameters
+# Summary of item intercepts
+fit_cfa$summary(variables = "mu")       # E(Y|theta =0)
+
+# Interpret the item intercept (remember: standardized LV):
+# For someone with an average amount of the tendendcy to agree with 
+# conspircaries, we would expect their value for item 1 to be be 2.37 out of 5
+fit_cfa$summary(variables = "mu")[1,]
+
+# Summary of factor loadings
+fit_cfa$summary(variables = "lambda") # E(Y| theta + 1) - E(Y| theta)
+
+# Interpret the factor loadings
+# If we compare to respondents that differ by one (standard deviation) in their
+# tendency to believe in conspiracy theory, we would expect the one with the
+# heigher tendency to respond a 0.371 higher than the other
+fit_cfa$summary(variables = "lambda")[1,]
+
+# Summary of the unique standard deviations
+fit_cfa$summary(variables = "psi")
+
+# Extract posterior draws as r.v.
+draws_cfa <- posterior::as_draws_rvars(fit_cfa$draws())
+
+# Show relationship between item means and mu parameters
 apply(X = conspiracy_items, MARGIN = 2, FUN = mean)
 
 ###################
 # Item parameters #
 ###################
 
-# define sequence of item numbers
+# Fixed theta values
+theta_fixed <- seq(-3, 3, length.out = P) 
+
+# Important: I hope that recycling works properly. Since dim(psi) = 10 and 
+# dim(mu+lambda*t(theta)) is 10 x 177: ino <- 13 ; draws_cfa$yhat[ino]
+# (draws_cfa$mu + draws_cfa$lambda * t(draws_cfa$theta))[ino] + draws_cfa$psi[ino-10]
+draws_cfa$yhat <- draws_cfa$mu + draws_cfa$lambda * t(draws_cfa$theta) +
+  draws_cfa$psi
+# ...including estimation uncertainty in theta
+# draws_cfa$mu + draws_cfa$lambda * t(draws_cfa$theta) +  draws_cfa$psi
+
+
+# todo todo todo
+
+# Normal ICC (item characteristic curve)
+itemno <- 10 
+#wrong!
+plot(theta_fixed, mean(draws_cfa$yhat[itemno,]),
+     ylim = c(-2,8), xlab = expression(theta),
+)
+
+
+
+# Define sequence of item numbers
 # I_seq <- seq_len(I)
 I_seq <- I
 
@@ -127,7 +176,6 @@ mcmc_dens(fit_cfa$draws(variables = "lambda[10]"))
 # legend
 legend(x = -3, y = 7, legend = c("Posterior Draw", "Item Limits", "EAP"), 
 col = c(1,4,2), lty = c(1,2,3), lwd=5)
-
 
 # multimodality (2 separate modes)
 plot(x = item_pars[, 1], y = item_pars[, 2])
@@ -409,5 +457,3 @@ plot(y = modelCFA_samples2fixed$summary(variables = c("mu", "lambda", "psi", "th
      ylab = "With Starting Values")
 cor(modelCFA_samples2fixed$summary(variables = c("mu", "lambda", "psi", "theta"))$mean,
     modelCFA_samples$summary(variables = c("mu", "lambda", "psi", "theta"))$mean)
-
-save.image("lecture04b.RData")
