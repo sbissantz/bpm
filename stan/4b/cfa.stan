@@ -20,11 +20,11 @@ parameters {
 }
 model {
   // Item parameters  
-  mu ~ multi_normal(mu_mean, Mu_cov);              // item intercept prior p.d.
-  lambda  ~ multi_normal(lambda_mean, Lambda_cov); // factor loading prior p.d.
+  mu ~ multi_normal(mu_mean, Mu_cov);             // item intercept prior p.d.
+  lambda ~ multi_normal(lambda_mean, Lambda_cov); // factor loading prior p.d.
   psi ~ exponential(psi_rate);
   // Person parameters
-  theta ~ std_normal();
+  theta ~ std_normal();                           // standardized lv
   // Likelihood
   for (i in 1:I) {
     // Vectorize over person (across rows)
