@@ -37,7 +37,7 @@ psi_rate <- rep(0.01, I)
 #######
 # CFA #
 #######
-conspiracy_items
+
 # Compile model into executable
 mdl_cfa <- cmdstan_model("./stan/4b/cfa.stan", pedantic = TRUE)
 
@@ -102,14 +102,14 @@ fit_cfa$summary(variables = "psi")
 draws_cfa <- posterior::as_draws_rvars(fit_cfa$draws())
 
 # Show relationship between item means and mu parameters
-apply(X = conspiracy_items, MARGIN = 2, FUN = mean)
+colMeans(conspiracy_items)
 
 ###################
 # Item parameters #
 ###################
 
 # Fixed theta values
-theta_fixed <- seq(-3, 3, length.out = P) 
+theta_fixed <- seq(-3, 3, length.out = P)
 
 # Important: I hope that recycling works properly. Since dim(psi) = 10 and 
 # dim(mu+lambda*t(theta)) is 10 x 177: ino <- 13 ; draws_cfa$yhat[ino]
@@ -119,169 +119,88 @@ draws_cfa$yhat <- draws_cfa$mu + draws_cfa$lambda * t(draws_cfa$theta) +
 # ...including estimation uncertainty in theta
 # draws_cfa$mu + draws_cfa$lambda * t(draws_cfa$theta) +  draws_cfa$psi
 
-
-# todo todo todo
-
 # Normal ICC (item characteristic curve)
 itemno <- 10 
-#wrong!
-plot(theta_fixed, mean(draws_cfa$yhat[itemno,]),
-     ylim = c(-2,8), xlab = expression(theta),
-)
-
-# Use E() instead of mean() with r.v.?
-plot(theta_fixed, E(draws_cfa$yhat[itemno,]),
-     ylim = c(-2,8), xlab = expression(theta),
-)
-
-
-# Define sequence of item numbers
-# I_seq <- seq_len(I)
-I_seq <- I
-
-# define labels for item parameters
-mu_lbl <- paste0("mu[", I_seq, "]")
-lambda_lbl <- paste0("lambda[", I_seq, "]")
-psi_lbl <- paste0("psi[", I_seq, "]")
-
-# extract draws from item parameters
-item_pars <- fit_cfa$draws(variables = c(mu_lbl, lambda_lbl, psi_lbl), 
-  format = "draws_matrix")
-
-# extract summary statistics for item parameters
-(item_summary <- fit_cfa$summary(variables = c(mu_lbl, lambda_lbl, psi_lbl)))
-
-# item plot
-theta <- seq(-3, 3, .1) # for plotting analysis lines--x axis values
-
-# drawing item characteristic curves for item
-# E(theta|Y) 
-y <- as.numeric(item_pars[1, mu_lbl]) + 
-  as.numeric(item_pars[1, lambda_lbl]) * theta
-
-plot(x = theta, y = y, type = "l", main = paste("Item", I_seq, "ICC"),
-     ylim = c(-2,8), xlab = expression(theta),
-     ylab = paste("Item", I_seq, "Predicted Value"))
-for (draw in seq_len(50)){
-  y <- as.numeric(item_pars[draw, mu_lbl]) +
-        as.numeric(item_pars[draw, lambda_lbl]) * theta
-  lines(x = theta, y = y)
+plot(NULL, ylim = c(-2,8), xlim = range(theta_fixed), xlab = expression(theta))
+mu_arr <- posterior::draws_of(draws_cfa$mu[itemno])
+lambda_arr <- posterior::draws_of(draws_cfa$lambda[itemno])
+for (d in seq_len(2000)) {
+  abline(a = mu_arr[d], b = lambda_arr[d], col = "steelblue", lwd = 0.05)
 }
-# drawing limits
-lines(x = c(-3, 3), y = c(5, 5), type = "l", col = 4, lwd = 5, lty = 2)
-lines(x = c(-3, 3), y = c(1, 1), type = "l", col = 4, lwd = 5, lty = 2)
-# drawing EAP line
-y <- item_summary$mean[which(item_summary$variable == mu_lbl)] + 
-  item_summary$mean[which(item_summary$variable == lambda_lbl)] * theta
-lines(x = theta, y = y, lwd = 5, lty = 3, col = 2)
+abline(a = mean(mu_arr[1:2000]), b = mean(lambda_arr[1:2000]), lwd = 5)
+# Limits
+lines(x = c(-3, 3), y = c(5, 5), type = "l", col = 2, lwd = 5, lty = 2)
+lines(x = c(-3, 3), y = c(1, 1), type = "l", col = 2, lwd = 5, lty = 2)
 
-# multimodality (2 separate modes)
+# Multimodality (2 separate modes)
 mcmc_dens(fit_cfa$draws(variables = "lambda[10]"))
-# legend
-legend(x = -3, y = 7, legend = c("Posterior Draw", "Item Limits", "EAP"), 
-col = c(1,4,2), lty = c(1,2,3), lwd=5)
+plot(mu_arr, lambda_arr)
+cor(mu_arr, lambda_arr)
 
-# multimodality (2 separate modes)
-plot(x = item_pars[, 1], y = item_pars[, 2])
-cor(x = item_pars[, 1], y = item_pars[, 2])
-
-# investigating latent variables
-
-#results
-print(fit_cfa$summary(variables = c("theta")), n = Inf)
+# Investigating person parameters
+summary(draws_cfa$theta)
 # Almost all parameter estimates are shrunk towards zero
 
-# EAP distribution
-hist(fit_cfa$summary(variables = c("theta"))$mean, 
-main = "EAP Estimates of Theta", xlab = expression(theta))
+# Distribution of EAP estimates (posterior means)
+hist(mean(draws_cfa$theta), main = "EAP Estimates of Theta", 
+xlab = expression(theta))
 # All the values center around zero (multimodality)
 
-plot(density(fit_cfa$summary(variables = c("theta"))$mean), 
-main = "EAP Estimates of Theta", xlab = expression(theta))
+plot(density(mean(draws_cfa$theta)), main = "EAP Estimates of Theta",
+xlab = expression(theta))
 # All the values center around zero (multimodality)
 
 # Density of All Posterior Draws
-theta <- fit_cfa$draws(variables = c("theta"), format = "draws_matrix")
-theta_vec <- c(theta)
-hist(theta_vec)
+hist(draws_of(draws_cfa$theta))
 
-# plotting two theta distributions side-by-side
-theta1 <- "theta[1]"
-theta2 <- "theta[2]"
-theta_draws <- fit_cfa$draws(variables = c(theta1, theta2), format = "draws_matrix")
-theta_vec <- rbind(theta_draws[,1], theta_draws[,2])
-theta_df <- data.frame(observation = c(rep(theta1, nrow(theta_draws)), rep(theta2, nrow(theta_draws))), 
-sample = theta_vec)
-  rep(theta1, nrow(theta_draws), sample = theta_vec)
-names(theta_df) <- c("observation", "sample")
-ggplot(theta_df, aes(x = sample, fill = observation)) + 
-  geom_density(alpha = 0.25)
+# todo todo todo
+
+# Plotting two theta distributions side-by-side
+plot(NULL, xlim = c(-3, 3), ylim = c(0,1.5), xlab = expression(theta),
+main = "EAP Estimates of Theta")
+polygon(density(draws_of(draws_cfa$theta[1])), col = "slateblue1")
+polygon(density(draws_of(draws_cfa$theta[2])), col = "steelblue")
 # The resulting distribution is a result of combining the two
 # distributions of theta[1] and theta[2]
 
 # comparing EAP estimates with posterior SDs
-plot(y = fit_cfa$summary(variables = c("theta"))$sd, 
-x = fit_cfa$summary(variables = c("theta"))$mean,
-     xlab = "E(theta|Y)", ylab = "SD(theta|Y)")
+plot(mean(draws_cfa$theta), sd(draws_cfa$theta),
+  xlab = "E(theta|Y)",
+  ylab = "SD(theta|Y)"
+)
 # BOOM!
-# under normal theory we would expect a line (constant), because
-# ...but this is clearly not the case here
-# we use the same standard deviation (fixed); but allowing for
+# Under normal theory we would expect a line (constant), because
+# ...but this is clearly not the case here!
+# We use the same standard deviation (fixed); but allowing for
 # variation in a clearly nonlinear pattern emerges
 
-## comparing EAP estimates with sum scores
-plot(x = rowSums(conspiracy_items), 
-y = fit_cfa$summary(variables = c("theta"))$mean,
-     xlab = "Sum Score", ylab = expression(theta))
+# todo todo todo
 
-# Estimating Theta with fixed item parameters
-lambda_eap <- fit_cfa$summary(variables = "lambda")$mean
-mu_eap <- fit_cfa$summary(variables = "mu")$mean
-psi_eap <- fit_cfa$summary(variables = "psi")$mean
-
-# Stan syntax
-fml_fixedcfa <- "
-
-data {
-  int<lower=0> P;                 // number of observations
-  int<lower=0> I;               // number of items
-  matrix[P, I] Y;            // item responses in a matrix
-
-  vector[I] mu_eap;        // (fixed) EAP estimates of item intercepts
-  vector[I] lambda_eap;   // (fixed) EAP estimates of item loadings
-  vector[I] psi_eap;      // (fixed) EAP estimates of unique sd
-}
-
-parameters {
-  vector[P] theta;                // the latent variables (one for each person)
-}
-
-model {
-  
-  theta ~ normal(0, 1);        // prior for latent variable (mean/sd specified)
-  
-  for (item in 1:I){
-    Y[,item] ~ normal(mu_eap[item] + lambda_eap[item]*theta, psi_eap[item]);
-  }
-  
-}
-
-"
-
-# compile model
-mdl_fixedcfa <- cmdstan_model(stan_file = write_stan_file(fml_fixedcfa))
-
-# build r list for stan
-stanls_fixedcfa <- list(
-  P = P,
-  I = I,
-  Y = conspiracy_items,
-  mu_eap = mu_eap,
-  lambda_eap = lambda_eap,
-  psi_eap = psi_eap
+# Comparing EAP estimates with sum scores
+plot(rowSums(conspiracy_items), mean(draws_cfa$theta),
+  xlab = "Sum Score", ylab = expression(theta)
 )
 
-# run MCMC chain (sample from posterior p.d.)
+# Estimating Theta with fixed item parameters
+lambda_eap <- mean(draws_cfa$lambda)
+mu_eap <- mean(draws_cfa$mu)
+psi_eap <- mean(draws_cfa$psi)
+
+
+# Compile model
+mdl_fixedcfa <- cmdstan_model("./stan/4b/fixedcfa.stan", pedantic = TRUE)
+
+# Build r list for stan
+stanls_fixedcfa <- list(
+  "P" = P,
+  "I" = I,
+  "Y" = conspiracy_items,
+  "mu_eap" = mu_eap,
+  "lambda_eap" = lambda_eap,
+  "psi_eap" = psi_eap
+)
+
+# Run MCMC chain (sample from posterior p.d.)
 # note run very long chain to get a fine resolution of the tails
 fit_fixedcfa <- mdl_fixedcfa$sample(
   data = stanls_fixedcfa,
@@ -292,36 +211,37 @@ fit_fixedcfa <- mdl_fixedcfa$sample(
   iter_sampling = 50000
 )
 
-# extracting fixed person parameter results
-fixedItems_ThetaMeans <- fit_fixedcfa$summary(variables = c("theta"))$mean
-fixedItems_ThetaSDs <- fit_fixedcfa$summary(variables = c("theta"))$sd
+###############
+# Diagnostics #
+###############
 
-plot(y = fixedItems_ThetaSDs,
-     x = fixedItems_ThetaMeans,
+# Assess convergence: summary of all parameters
+fit_fixedcfa$cmdstan_diagnose()
+fit_fixedcfa$diagnostic_summary()
+
+# Checking convergence
+max(fit_fixedcfa$summary()$rhat, na.rm = TRUE)
+
+# Extract posterior draws as r.v.
+draws_fixedcfa <- posterior::as_draws_rvars(fit_fixedcfa$draws())
+
+# Visualize person parameter (fixed) 
+plot(mean(draws_fixedcfa$theta), sd(draws_fixedcfa$theta),
      xlab = "E(theta|Y)", ylab = "SD(theta|Y)",
      ylim = c(0, 1))
 
-# extracting person parameter (estimated) 
-estimatedItems_ThetaMeans <- fit_cfa$summary(variables = c("theta"))$mean
-estimatedItems_ThetaSDs <- fit_cfa$summary(variables = c("theta"))$sd
+# Visualize person parameter (estimated vs. fixed) 
+plot(mean(draws_fixedcfa$theta), mean(draws_cfa$theta),
+  xlab = "Fixed Item Parameters", ylab = "Estimated Item Parameters",
+  main = "EAP Theta Estimates")
+# Mean is almost perfectly covered, the mean is a stable quantitiy. BUT...
 
-plot(y = estimatedItems_ThetaMeans,
-     x = fixedItems_ThetaMeans,
-     xlab = "Fixed Item Parameters", ylab = "Estimated Item Parameters", 
-     main = "EAP Theta Estimates")
-# Mean is almost perfectly covered, BUT...
-# Mean is a stable quantitiy
-
-plot(y = estimatedItems_ThetaSDs,
-     x = fixedItems_ThetaSDs,
-     xlab = "Fixed Item Parameters", ylab = "Estimated Item Parameters", 
-     main = "Theta Posterior SDs")
+plot(sd(draws_fixedcfa$theta), sd(draws_cfa$theta),
+  xlab = "Fixed Item Parameters", ylab = "Estimated Item Parameters",
+  main = "Theta Posterior SDs")
 #....the SDs are not
 
-# With estimates fixed at the EAP values, we dramatically overstate
-# our certainty in the estimates of theta, especially with a small sample size 
-# Put another our uncertainty in the itemparameters does not translate to 
-# uncertainty in the person parameters!
+# With estimates fixed at the EAP values, we dramatically overstate our certainty in the estimates of theta, especially with a small sample size. Put another our uncertainty in the itemparameters does not translate to uncertainty in the person parameters!
 
 #####################
 # Convergence Fails #
@@ -329,135 +249,127 @@ plot(y = estimatedItems_ThetaSDs,
 
 fit_failedcfa <- mdl_cfa$sample(
   data = stanls_cfa,
-  seed = 25102022,
+  seed = 21102022,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 2000,
   iter_sampling = 2000
 )
 
-# checking convergence
+# Checking convergence
 max(fit_failedcfa$summary()$rhat, na.rm = TRUE)
 
-# item parameter results
-print(fit_failedcfa$summary(variables = c("mu", "lambda", "psi")), n=Inf)
+# Item parameter results
+print(fit_failedcfa$summary(variables = c("mu", "lambda", "psi")), n = Inf)
 
-# person parameter results
+# Person parameter results
 print(fit_failedcfa$summary(variables = c("theta")), n = Inf)
 
-# plotting trace
+# Plotting trace
 mcmc_trace(fit_failedcfa$draws(variables = "lambda"))
 # Two separated modes! Three chains are stuck in one mode, one in the other
 
-# plotting densities
+# Plotting densities
 mcmc_dens(fit_failedcfa$draws(variables = "lambda"))
 mcmc_dens(fit_failedcfa$draws(variables = c("theta[1]", "theta[2]", "theta[3]")))
 # Two separated modes! Three chains are stuck in one mode, one in the other
 
-# investigating item parameters
-itemno <- 3
+# Extract posterior draws
+draws_failedcfa <- posterior::as_draws_rvars(fit_failedcfa$draws())
 
-mu_lbl <- paste0("mu[", itemno, "]")
-lambda_lbl <- paste0("lambda[", itemno, "]")
-psi_lbl <- paste0("psi[", itemno, "]")
-item_pars <- failedcfa$draws(variables = c(mu_lbl, lambda_lbl, psi_lbl), 
-format <- "draws_matrix")
-item_summary <- failed_cfa$summary(variables = c(mu_lbl, lambda_lbl, psi_lbl))
-
-# item plot
-theta <- seq(-3, 3, .1) # for plotting analysis lines--x axis values
- 
-# drawing item characteristic curves for item
-y <- as.numeric(item_pars[1,mu_lbl]) + as.numeric(item_pars[1,lambda_lbl]) * 
-theta
-plot(x = theta, y = y, type = "l", main = paste("Item", itemno, "ICC"),
-     ylim = c(-2,8), xlab = expression(theta),
-     ylab = paste("Item", itemno, "Predicted Value"))
-for (draw in 2:nrow(item_pars)) {
-  y <- as.numeric(item_pars[draw, mu_lbl]) +
-  as.numeric(item_pars[draw,lambda_lbl]) * theta
-  lines(x = theta, y = y)
+# Visualize the problem of two modes
+theta_fixed <- seq(-3, 3, length.out = P)
+itemno <- 10 
+plot(NULL, ylim = c(-2, 8), xlim = range(theta_fixed), xlab = expression(theta))
+mu_arr <- posterior::draws_of(draws_failedcfa$mu[itemno])
+lambda_arr <- posterior::draws_of(draws_failedcfa$lambda[itemno])
+for (d in seq_len(4000)) {
+  abline(a = mu_arr[d], b = lambda_arr[d], col = "steelblue", lwd = 0.05)
 }
+# Multimodality
+abline(a = mean(mu_arr), b = mean(lambda_arr), col = 2, lwd = 5)
+abline(a = mean(mu_arr[1:2000]), b = mean(lambda_arr[1:2000]), lwd = 5)
+abline(a = mean(mu_arr[2001:4000]), b = mean(lambda_arr[2001:4000]), lwd = 5)
+# Limits
+lines(x = c(-3, 3), y = c(5, 5), type = "l", col = 5, lwd = 5, lty = 2)
+lines(x = c(-3, 3), y = c(1, 1), type = "l", col = 5, lwd = 5, lty = 2)
 
-# drawing limits
-# ... the x-effect -- two modes, perfect reflections!
-lines(x = c(-3, 3), y = c(5, 5), type = "l", col = 4, lwd = 5, lty = 2)
-lines(x = c(-3, 3), y = c(1, 1), type = "l", col = 4, lwd = 5, lty = 2)
+# Multimodality (2 separate modes)
+mcmc_dens(fit_failedcfa$draws(variables = "lambda[10]"))
+plot(mu_arr, lambda_arr)
+cor(mu_arr, lambda_arr)
 
-# drawing EAP line
-# drawing EAP line
-y <- item_summary$mean[which(item_summary$variable == mu_lbl)] + 
-  item_summary$mean[which(item_summary$variable == lambda_lbl)] * theta
-lines(x = theta, y = y, lwd = 5, lty = 3, col = 2)
-
-# legend
-legend(x = -3, y = 7, legend = c("Posterior Draw", "Item Limits", "EAP"), col = c(1,4,2), lty = c(1,2,3), lwd=5)
-
-# alternative strategy for ensuring convergence to single mode of data: =========
-
-# initial problem chains:
+#########################################
+# Ensuring convergence to a single mode #
+#########################################
 
 # checking convergence
 max(fit_failedcfa$summary()$rhat, na.rm = TRUE)
 
 # item parameter results
-print(fit_failedcfa$summary(variables = c("mu", "lambda", "psi")) ,n = Inf)
+print(fit_failedcfa$summary(variables = c("mu", "lambda", "psi")), n = Inf)
 
-#
-# Stop
-# Failed below!
-#
-
-# set starting values for some of the parameters
+# Set starting values for some of the parameters
 # here, we are examining what the starting values were by running a very small chain without warmup
-fit_newstartcfa <- mdl_cfa$sample(
+fit_cfastartval <- mdl_cfa$sample(
   data = stanls_cfa,
   seed = 25102022,
   chains = 1,
-  parallel_chains = 1,
   iter_warmup = 0,
   iter_sampling = 10,
   # Random starting values for lambda
-  init = function() list(lambda = rnorm(I, mean = 10, sd = 1)), 
+  init = function() list("lambda" = rnorm(I, mean = 10, sd = 1)),
   adapt_engaged = FALSE
 )
 
-modelCFA_samples2starting$draws(variables = "lambda", format = "draws_matrix")
-
-# now we can see the sampling work (with limited warmup)
-modelCFA_samples2nowarmup = modelCFA_stan$sample(
-  data = modelCFA_data,
+# Now we can see the sampling work (with limited warmup)
+fit_cfanowarmup <- mdl_cfa$sample(
+  data = stanls_cfa,
   seed = 25102022,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 10,
   iter_sampling = 2000, 
-  init = function() list(lambda=rnorm(nItems, mean=10, sd=2))
+  init = function() list("lambda" = rnorm(I, mean = 10, sd = 2))
 )
 
-mcmc_trace(modelCFA_samples2nowarmup$draws(variables = "lambda"))
+# See if first samples start at values of 10, since we set 'mean = 10'
+View(fit_cfanowarmup$draws(variables = "lambda", format = "draws_matrix"))
 
-View(modelCFA_samples2nowarmup$draws(variables = "lambda", format = "draws_matrix"))
+# Traceplots
+mcmc_trace(fit_cfanowarmup$draws(variables = "lambda"))
 
-# now we can see the sampling work (with limited warmup)
-modelCFA_samples2fixed = modelCFA_stan$sample(
-  data = modelCFA_data,
+# Now we can see the sampling work (with limited warmup)
+fit_warmcfa <- mdl_cfa$sample(
+  data = stanls_cfa,
   seed = 25102022,
   chains = 4,
   parallel_chains = 4,
-  iter_warmup = 2000,
+  iter_warmup = 3000,
   iter_sampling = 2000, 
-  init = function() list(lambda=rnorm(nItems, mean=10, sd=2))
+  init = function() list(lambda = rnorm(I, mean = 10, sd = 2))
 )
 
-max(modelCFA_samples2fixed$summary()$rhat, na.rm = TRUE)
+###############
+# Diagnostics #
+###############
 
-print(modelCFA_samples2fixed$summary(variables = c("mu", "lambda", "psi")) ,n=Inf)
-print(modelCFA_samples2fixed$summary(variables = c("theta")) ,n=Inf)
+# Assess convergence: summary of all parameters
+fit_warmcfa$cmdstan_diagnose()
+fit_warmcfa$diagnostic_summary()
 
-plot(y = modelCFA_samples2fixed$summary(variables = c("mu", "lambda", "psi", "theta"))$mean,
-     x = modelCFA_samples$summary(variables = c("mu", "lambda", "psi", "theta"))$mean,
-     main = "Comparing Results from Converged", xlab = "Without Starting Values",
-     ylab = "With Starting Values")
-cor(modelCFA_samples2fixed$summary(variables = c("mu", "lambda", "psi", "theta"))$mean,
-    modelCFA_samples$summary(variables = c("mu", "lambda", "psi", "theta"))$mean)
+# Checking convergence
+max(fit_warmcfa$summary()$rhat, na.rm = TRUE)
+
+# Extract posterior draws
+draws_warmcfa <- posterior::as_draws_rvars(fit_warmcfa$draws())
+
+# Visualize comparison between failed and not failed models
+plot(NULL, xlim = c(-3,3), ylim = c(-3, 3))
+points(mean(draws_warmcfa$mu), mean(draws_failedcfa$mu), col = 2)
+points(mean(draws_warmcfa$lambda), mean(draws_failedcfa$lambda),
+  col = 3, cex = 4)
+points(mean(draws_warmcfa$psi), mean(draws_failedcfa$psi), col = 4)
+points(mean(draws_warmcfa$theta), mean(draws_failedcfa$theta), col = 1)
+abline(a = 0, b = 1, lty = 2)
+# Lambda and theta are most problematic!
