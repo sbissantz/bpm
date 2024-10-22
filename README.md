@@ -1,1 +1,2 @@
 # bpm
+Bayesian Psychometric Modeling 
