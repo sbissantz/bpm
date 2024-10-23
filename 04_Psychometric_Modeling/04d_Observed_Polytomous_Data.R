@@ -71,8 +71,6 @@ fit_cfa <- mdl_cfa$sample(
   init = function() list(lambda = rnorm(I, mean = 10, sd = 2))
 )
 
-# todo todo todo
-
 ###############
 # Diagnostics #
 ###############
@@ -85,7 +83,7 @@ fit_cfa$diagnostic_summary()
 max(fit_cfa$summary()$rhat, na.rm = TRUE)
 
 # item parameter results
-print(fit_cfa$summary(variables = c("mu", "lambda", "psi")) ,n = Inf)
+print(fit_cfa$summary(variables = c("mu", "lambda", "psi")), n = Inf)
 
 # Extract posterior draws as r.v.
 draws_cfa <- posterior::as_draws_rvars(fit_cfa$draws())
@@ -94,14 +92,12 @@ draws_cfa <- posterior::as_draws_rvars(fit_cfa$draws())
 # Item parameters #
 ###################
 
-# todo todo todo
-
 # Fixed theta values
 theta_fixed <- seq(-3, 3, length.out = P)
 
 # Normal ICC
 itemno <- 10 
-plot(NULL, ylim = c(-2, 8), xlim = range(theta_fixed), xlab = expression(theta))
+plot(NULL, ylim = c(-2, 6), xlim = range(theta_fixed), xlab = expression(theta))
 mu_arr <- posterior::draws_of(draws_cfa$mu[itemno])
 lambda_arr <- posterior::draws_of(draws_cfa$lambda[itemno])
 for (d in seq_len(2000)) {
@@ -112,68 +108,62 @@ abline(a = mean(mu_arr[1:2000]), b = mean(lambda_arr[1:2000]), lwd = 5)
 lines(x = c(-3, 3), y = c(5, 5), type = "l", col = 2, lwd = 5, lty = 2)
 lines(x = c(-3, 3), y = c(1, 1), type = "l", col = 2, lwd = 5, lty = 2)
 
-
-draws_cfa$mu[itemno]
-
-(draws_cfa$mu[itemno] + draws_cfa$lambda[itemno] * theta_fixed)
-
-
-
-
-y
-
-
-itemNumber = 10
-
-labelMu = paste0("mu[", itemNumber, "]")
-labelLambda = paste0("lambda[", itemNumber, "]")
-labelPsi = paste0("psi[", itemNumber, "]")
-itemParameters = fit_cfa$draws(variables = c(labelMu, labelLambda, labelPsi), format = "draws_matrix")
-itemSummary = fit_cfa$summary(variables = c(labelMu, labelLambda, labelPsi))
-
-# item plot
-theta = seq(-3,3,.1) # for plotting analysis lines--x axis values
-
-
-
-# drawing item characteristic curves for item
-y = as.numeric(itemParameters[1,labelMu]) + as.numeric(itemParameters[1,labelLambda])*theta
-plot(x = theta, y = y, type = "l", main = paste("Item", itemNumber, "ICC"), 
-     ylim=c(-2,8), xlab = expression(theta), ylab=paste("Item", itemNumber,"Predicted Value"))
-for (draw in 2:nrow(itemParameters)){
-  y = as.numeric(itemParameters[draw,labelMu]) + as.numeric(itemParameters[draw,labelLambda])*theta
-  lines(x = theta, y = y)
+# Alternative way for visualization I
+draws_cfa$y <- draws_cfa$mu + draws_cfa$lambda * t(theta_fixed)
+itemno <- 10
+plot(NULL,
+  main = paste("Item", itemno, "ICC"),
+  ylim = c(-2, 6), xlim = range(theta_fixed),
+  xlab = expression(theta))
+yno_arr <- posterior::draws_of(draws_cfa$y[itemno, ])
+for (d in 1:100) {
+  lines(theta_fixed, yno_arr[d, 1, ], col = "steelblue", lwd = 0.5)
 }
+lines(theta_fixed, mean(draws_cfa$y[itemno, ]), lwd = 5)
+legend("topleft",
+  legend = c("Posterior Draw", "EAP"),
+  col = c("steelblue", "black"), lty = c(1, 1), lwd = 5
+)
+# Limits
+lines(x = c(-3, 3), y = c(5, 5), type = "l", col = 2, lwd = 5, lty = 2)
+lines(x = c(-3, 3), y = c(1, 1), type = "l", col = 2, lwd = 5, lty = 2)
 
-# drawing limits
-lines(x = c(-3,3), y = c(5,5), type = "l", col = 4, lwd=5, lty=2)
-lines(x = c(-3,3), y = c(1,1), type = "l", col = 4, lwd=5, lty=2)
-
-# drawing EAP line
-y = itemSummary$mean[which(itemSummary$variable==labelMu)] + 
-  itemSummary$mean[which(itemSummary$variable==labelLambda)]*theta
-lines(x = theta, y = y, lwd = 5, lty=3, col=2)
-
-# legend
-legend(x = -3, y = 7, legend = c("Posterior Draw", "Item Limits", "EAP"), col = c(1,4,2), lty = c(1,2,3), lwd=5)
-
-
-
-# Binomial Model Syntax (slope/intercept form ) ==================================================
-
-# note: data must start at zero
-conspiracyItemsBinomial = conspiracyItems
-for (item in 1:ncol(conspiracyItemsBinomial)){
-  conspiracyItemsBinomial[, item] = conspiracyItemsBinomial[, item] - 1
+# Alternative way for visualization II
+itemno <- 10
+draws_cfa$y10 <- draws_cfa$mu[itemno] + draws_cfa$lambda[itemno] * theta_fixed
+plot(NULL,
+  main = paste("Item", itemno, "ICC"),
+  ylim = c(-2, 6), xlim = range(theta_fixed),
+  xlab = expression(theta))
+yno_arr <- posterior::draws_of(draws_cfa$y10)
+for (d in 1:100) {
+  lines(theta_fixed, yno_arr[d,], col = "steelblue", lwd = 0.5)
 }
+lines(theta_fixed, mean(draws_cfa$y[itemno, ]), lwd = 5)
+legend("topleft",
+  legend = c("Posterior Draw", "EAP"),
+  col = c("steelblue", "black"), lty = c(1, 1), lwd = 5
+)
+# Limits
+lines(x = c(-3, 3), y = c(5, 5), type = "l", col = 2, lwd = 5, lty = 2)
+lines(x = c(-3, 3), y = c(1, 1), type = "l", col = 2, lwd = 5, lty = 2)
+
+#####################################################
+# 2 PL SI                                           #
+# I.e.: Binomial Likelihood (Slope-Intercept Form)  #
+#####################################################
+
+# Data must start at zero (orginal scale: 1-5)
+# Subtract minus 1 from each value (recycling)
+citems_binom <- citems - 1
 
 # check first item
-table(conspiracyItemsBinomial[,1])
+table(citems_binom[, 1])
 
 # determine maximum value for each item
-maxItem = apply(X = conspiracyItemsBinomial,
-                MARGIN = 2, 
-                FUN = max)
+apply(citems_binom, 2, max)
+
+#todo todo
 
 modelBinomial_syntax = "
 
@@ -258,7 +248,7 @@ modelBinomial_samples = modelBinomial_stan$sample(
 max(modelBinomial_samples$summary()$rhat, na.rm = TRUE)
 
 # item parameter results
-print(modelBinomial_samples$summary(variables = c("mu", "lambda")) ,n=Inf)
+print(modelBinomial_samples$summary(variables = c("mu", "lambda")), n = Inf)
 
 # investigating option characteristic curves ===================================
 itemNumber = 10
