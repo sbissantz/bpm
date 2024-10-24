@@ -148,109 +148,99 @@ legend("topleft",
 lines(x = c(-3, 3), y = c(5, 5), type = "l", col = 2, lwd = 5, lty = 2)
 lines(x = c(-3, 3), y = c(1, 1), type = "l", col = 2, lwd = 5, lty = 2)
 
-#####################################################
-# 2 PL SI                                           #
-# I.e.: Binomial Likelihood (Slope-Intercept Form)  #
-#####################################################
+#######################################
+# 2 PL SI with Binomial(!) Likelihood #
+# (Slope-Intercept Form)              # 
+#######################################
+
+# Idea: Use a binomial likelihood for polytomous data
+# Item responses are the n° successes in n° trials.
+# E.g. if a person selects "3" out of 5 categories, we have 3 successes.
+# However the binomial starts at zero, so we recode item_repsponse - 1
+# Therefore if a person chooses a 3/5 on the original scale there are 3-1 = 2
+# successes in 4 trial. The n° trials is constant (across all r.e.s).
+# Problem: Assumes that responses are unimodal.
 
 # Data must start at zero (orginal scale: 1-5)
 # Subtract minus 1 from each value (recycling)
 citems_binom <- citems - 1
+head(citems_binom)
 
-# check first item
+# Check first item
 table(citems_binom[, 1])
 
-# determine maximum value for each item
-apply(citems_binom, 2, max)
+# Determine maximum value for each item
+N <- apply(citems_binom, 2, max)
 
-#todo todo
+# Compile model
+mdl_binom2pl_si <- cmdstan_model("./stan/4d/binom2pl_si.stan", pedantic = TRUE)
 
-modelBinomial_syntax = "
-
-data {
-  int<lower=0> nObs;                            // number of observations
-  int<lower=0> nItems;                          // number of items
-  array[nItems] int<lower=0> maxItem;
-  
-  array[nItems, nObs] int<lower=0>  Y; // item responses in an array
-
-  vector[nItems] meanMu;             // prior mean vector for intercept parameters
-  matrix[nItems, nItems] covMu;      // prior covariance matrix for intercept parameters
-  
-  vector[nItems] meanLambda;         // prior mean vector for discrimination parameters
-  matrix[nItems, nItems] covLambda;  // prior covariance matrix for discrimination parameters
-}
-
-parameters {
-  vector[nObs] theta;                // the latent variables (one for each person)
-  vector[nItems] mu;                 // the item intercepts (one for each item)
-  vector[nItems] lambda;             // the factor loadings/item discriminations (one for each item)
-}
-
-model {
-  
-  lambda ~ multi_normal(meanLambda, covLambda); // Prior for item discrimination/factor loadings
-  mu ~ multi_normal(meanMu, covMu);             // Prior for item intercepts
-  
-  theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
-  
-  for (item in 1:nItems){
-    Y[item] ~ binomial(maxItem[item], inv_logit(mu[item] + lambda[item]*theta));
-  }
-  
-}
-
-"
-
-modelBinomial_stan = cmdstan_model(stan_file = write_stan_file(modelBinomial_syntax))
-
-# data dimensions
-nObs = nrow(conspiracyItems)
-nItems = ncol(conspiracyItems)
-
-# item intercept hyperparameters
-muMeanHyperParameter = 0
-muMeanVecHP = rep(muMeanHyperParameter, nItems)
-
-muVarianceHyperParameter = 1000
-muCovarianceMatrixHP = diag(x = muVarianceHyperParameter, nrow = nItems)
+# Item intercept hyperparameters
+mu_mean <- rep(0, I)
+Mu_cov <- diag(1000, I)
 
 # item discrimination/factor loading hyperparameters
-lambdaMeanHyperParameter = 0
-lambdaMeanVecHP = rep(lambdaMeanHyperParameter, nItems)
+lambda_mean <- rep(0, I)
+Lambda_cov <- diag(1000, I)
 
-lambdaVarianceHyperParameter = 1000
-lambdaCovarianceMatrixHP = diag(x = lambdaVarianceHyperParameter, nrow = nItems)
+#############
+# Stan list #
+#############
 
-
-modelBinomial_data = list(
-  nObs = nObs,
-  nItems = nItems,
-  maxItem = maxItem,
-  Y = t(conspiracyItemsBinomial), 
-  meanMu = muMeanVecHP,
-  covMu = muCovarianceMatrixHP,
-  meanLambda = lambdaMeanVecHP,
-  covLambda = lambdaCovarianceMatrixHP
+stanls_binom2pl_si <- list(
+  "P" = P,
+  "I" = I,
+  "N" = N,
+  "Y" = t(citems_binom),  # Transpose – Stan: arrays in row major order
+  "mu_mean" = mu_mean,
+  "Mu_cov" = Mu_cov,
+  "lambda_mean" = lambda_mean,
+  "Lambda_cov" =  Lambda_cov
 )
 
-modelBinomial_samples = modelBinomial_stan$sample(
-  data = modelBinomial_data,
-  seed = 12112022,
+# Fit model
+fit_binom2pl_si <- mdl_binom2pl_si$sample(
+  data = stanls_2plbinom_si,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
-  iter_warmup = 5000,
-  iter_sampling = 5000,
-  init = function() list(lambda=rnorm(nItems, mean=5, sd=1))
+  iter_warmup = 3000,
+  iter_sampling = 2000,
+  init = function() list("lambda" = rnorm(I, mean = 5, sd = 1))
 )
 
-# checking convergence
-max(modelBinomial_samples$summary()$rhat, na.rm = TRUE)
+###############
+# Diagnostics #
+###############
 
-# item parameter results
-print(modelBinomial_samples$summary(variables = c("mu", "lambda")), n = Inf)
+# Assess convergence: summary of all parameters
+fit_binom2pl_si$cmdstan_diagnose()
+fit_binom2pl_si$diagnostic_summary()
+
+# Checking convergence
+max(fit_binom2pl_si$summary()$rhat, na.rm = TRUE)
+
+##########################
+# Item parameter results #
+##########################
+
+print(fit_binom2pl_si$summary(variables = c("mu", "lambda")), n = Inf)
+
+#########
+# Draws #
+#########
+
+# Extract posterior draws
+draws_binom2pl_si <- posterior::as_draws_rvars(fit_binom2pl_si$draws())
 
 # investigating option characteristic curves ===================================
+
+modelBinomial_samples <- fit_binom2pl_si
+
+
+
+
+
 itemNumber = 10
 
 labelMu = paste0("mu[", itemNumber, "]")
