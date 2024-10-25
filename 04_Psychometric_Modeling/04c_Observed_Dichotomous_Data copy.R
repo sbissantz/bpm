@@ -394,10 +394,10 @@ fit_2pl_dd$summary("b")[1, ]
 # Extract posterior draws
 draws_dd <- posterior::as_draws_rvars(fit_2pl_dd$draws())
 
-# fixed theta values
+# Fixed theta values
 theta_fixed <- seq(-3, 3, length.out = P)
 
-# drawing item characteristic curves for item
+# Drawing item characteristic curves for item
 draws_dd$logit <- draws_dd$mu + draws_dd$lambda * t(theta_fixed)
 # ...including estimation uncertainty in theta
 # draws_dd$y <- exp(draws_dd$logit) / (1 + exp(draws_dd$logit))
