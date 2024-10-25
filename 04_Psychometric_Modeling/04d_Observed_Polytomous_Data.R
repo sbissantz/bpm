@@ -153,6 +153,9 @@ lines(x = c(-3, 3), y = c(1, 1), type = "l", col = 2, lwd = 5, lty = 2)
 # (Slope-Intercept Form)              # 
 #######################################
 
+O <- 5 # Number of options (1, 2, 3, 4, 5)
+T <- 4 # Number of trials (0, 1, 2, 3, 4)
+
 # Idea: Use a binomial likelihood for polytomous data
 # Item responses are the n° successes in n° trials.
 # E.g. if a person selects "3" out of 5 categories, we have 3 successes.
@@ -167,10 +170,11 @@ citems_binom <- citems - 1
 head(citems_binom)
 
 # Check first item
-table(citems_binom[, 1])
+itemno <- 1 
+table(citems_binom[, itemno])
 
 # Determine maximum value for each item
-N <- apply(citems_binom, 2, max)
+(N <- apply(citems_binom, 2, max))
 
 # Compile model
 mdl_binom2pl_si <- cmdstan_model("./stan/4d/binom2pl_si.stan", pedantic = TRUE)
@@ -200,7 +204,7 @@ stanls_binom2pl_si <- list(
 
 # Fit model
 fit_binom2pl_si <- mdl_binom2pl_si$sample(
-  data = stanls_2plbinom_si,
+  data = stanls_binom2pl_si,
   seed = 112,
   chains = 4,
   parallel_chains = 4,
@@ -214,8 +218,8 @@ fit_binom2pl_si <- mdl_binom2pl_si$sample(
 ###############
 
 # Assess convergence: summary of all parameters
-fit_binom2pl_si$cmdstan_diagnose()
-fit_binom2pl_si$diagnostic_summary()
+fit_binom2plsi$cmdstan_diagnose()
+fit_binom2plsi$diagnostic_summary()
 
 # Checking convergence
 max(fit_binom2pl_si$summary()$rhat, na.rm = TRUE)
@@ -233,43 +237,44 @@ print(fit_binom2pl_si$summary(variables = c("mu", "lambda")), n = Inf)
 # Extract posterior draws
 draws_binom2pl_si <- posterior::as_draws_rvars(fit_binom2pl_si$draws())
 
-# investigating option characteristic curves ===================================
+# Fixed theta values
+theta_fixed <- seq(-3, 3, length.out = P)
 
-modelBinomial_samples <- fit_binom2pl_si
+draws_binom2pl_si$logodds <- with(
+  draws_binom2pl_si, t(mu + lambda * t(theta_fixed)) # t() again to make P X I
+)
+# Include estimation uncertainty in theta
+#draws_binom2pl_si$logodds <- with(
+  #draws_binom2pl_si, t(mu + lambda * t(theta))
+#)
 
+draws_binom2pl_si$prob <- with(
+  # Convert to probabilit (logit not implemented in rvars)
+  draws_binom2pl_si, exp(logodds) / (1 + exp(logodds))
+)
 
-
-
-
-itemNumber = 10
-
-labelMu = paste0("mu[", itemNumber, "]")
-labelLambda = paste0("lambda[", itemNumber, "]")
-itemParameters = modelBinomial_samples$draws(variables = c(labelMu, labelLambda), format = "draws_matrix")
-itemSummary = modelBinomial_samples$summary(variables = c(labelMu, labelLambda))
-
-# item plot
-theta = seq(-3,3,.1) # for plotting analysis lines--x axis values
-y = matrix(data = 0, nrow = length(theta), ncol=5)
-
-thetaMat = NULL
-prob = exp(itemSummary$mean[which(itemSummary$variable==labelMu)] + 
-             itemSummary$mean[which(itemSummary$variable==labelLambda)]*theta)/
-  (1+exp(itemSummary$mean[which(itemSummary$variable==labelMu)] + 
-           itemSummary$mean[which(itemSummary$variable==labelLambda)]*theta))
-
-option = 1
-for (option in 1:5){
-  thetaMat = cbind(thetaMat, theta)
-  y[,option] = dbinom(x = option-1, size=4, prob=prob)
+# Visualize OCCs
+# Option characteristic curves
+itemno <- 10
+mean(draws_binom2pl_si$prob)
+plot(c(-3, 3), c(0, 1), type = "n", main = "Option Characteristic Curve"
+      xlab = expression(theta), ylab = "P(Y |theta)")
+draws_binom2pl_si$prob[, itemno]
+prob10_arr <- draws_of(draws_binom2pl_si$prob[, itemno])
+for (o in seq_len(O)) { # For each of the five options
+  for (d in 1:100) {    # For each draw
+    # lines(theta_fixed, dbinom(1, T, prob = prob10_arr[d, , ]))
+    lines(theta_fixed, dbinom(o - 1, T, prob = prob10_arr[d, , ]),
+          col = o, lwd = 0.3
+    )
+  }
+  # EAP lineas
+  lines(theta_fixed, dbinom(o - 1, T,
+        prob = mean(draws_binom2pl_si$prob[, itemno])), lwd = 4)
 }
+legend("topright", legend = paste("Option", 1:5), col = 1:5, lwd = 3)
 
-matplot(x = thetaMat, y = y, type="l", xlab=expression(theta), ylab="P(Y |theta)", 
-        main=paste0("Option Characteristic Curves for Item ", itemNumber), lwd=3)
-
-legend(x = -3, y = .8, legend = paste("Option", 1:5), lty = 1:5, col=1:5, lwd=3)
-
-
+# todo todo todo
 
 # investigating item parameters ================================================
 itemNumber = 10
