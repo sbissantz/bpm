@@ -203,7 +203,7 @@ stanls_binom2pl_si <- list(
 )
 
 # Fit model
-fit_binom2pl_si <- mdl_binom2pl_si$sample(
+fit_binom2plsi <- mdl_binom2pl_si$sample(
   data = stanls_binom2pl_si,
   seed = 112,
   chains = 4,
@@ -230,17 +230,29 @@ max(fit_binom2pl_si$summary()$rhat, na.rm = TRUE)
 
 print(fit_binom2pl_si$summary(variables = c("mu", "lambda")), n = Inf)
 
+# E(Y| theta = theta_bar): A person with an average belief in conspiracies has a log-odds of -0.844 to say yes to any one option 0,...,4. 
+fit_binom2plsi$summary(variables = "mu")[1,] # -0.844
+
+# How to make predictions on the outcome scale?
+# Translate the log odds into a probability
+plogis(-0.844) # 0.3
+# Note: The mean of a bernoulli r.v. is E[X] = n*p.
+# n = 4 (0,...,4), p = 0.3; therefore 0.3 * 4 = 1.2
+# Note: The outcome scale is (1,...,5), therefore: 1.2 + 1 = 2.2.
+# Therefore we expect someone with an average belief in conspircacies to respond
+# 2.2 on the original scale; that is somewhere between disagree & neutral 
+
 #########
 # Draws #
 #########
 
 # Extract posterior draws
-draws_binom2pl_si <- posterior::as_draws_rvars(fit_binom2pl_si$draws())
+draws_binom2plsi <- posterior::as_draws_rvars(fit_binom2pl_si$draws())
 
 # Fixed theta values
 theta_fixed <- seq(-3, 3, length.out = P)
 
-draws_binom2pl_si$logodds <- with(
+draws_binom2plsi$logodds <- with(
   draws_binom2pl_si, t(mu + lambda * t(theta_fixed)) # t() again to make P X I
 )
 # Include estimation uncertainty in theta
@@ -248,19 +260,18 @@ draws_binom2pl_si$logodds <- with(
   #draws_binom2pl_si, t(mu + lambda * t(theta))
 #)
 
-draws_binom2pl_si$prob <- with(
+draws_binom2plsi$prob <- with(
   # Convert to probabilit (logit not implemented in rvars)
-  draws_binom2pl_si, exp(logodds) / (1 + exp(logodds))
+  draws_binom2plsi, exp(logodds) / (1 + exp(logodds))
 )
 
 # Visualize OCCs
 # Option characteristic curves
 itemno <- 10
-mean(draws_binom2pl_si$prob)
-plot(c(-3, 3), c(0, 1), type = "n", main = "Option Characteristic Curve"
+plot(c(-3, 3), c(0, 1), type = "n", main = "Option Characteristic Curve",
       xlab = expression(theta), ylab = "P(Y |theta)")
-draws_binom2pl_si$prob[, itemno]
-prob10_arr <- draws_of(draws_binom2pl_si$prob[, itemno])
+draws_binom2plsi$prob[, itemno]
+prob10_arr <- draws_of(draws_binom2plsi$prob[, itemno])
 for (o in seq_len(O)) { # For each of the five options
   for (d in 1:100) {    # For each draw
     # lines(theta_fixed, dbinom(1, T, prob = prob10_arr[d, , ]))
@@ -270,47 +281,47 @@ for (o in seq_len(O)) { # For each of the five options
   }
   # EAP lineas
   lines(theta_fixed, dbinom(o - 1, T,
-        prob = mean(draws_binom2pl_si$prob[, itemno])), lwd = 4)
+        prob = mean(draws_binom2plsi$prob[, itemno])), lwd = 4)
 }
 legend("topright", legend = paste("Option", 1:5), col = 1:5, lwd = 3)
 
-# todo todo todo
-
 # investigating item parameters ================================================
-itemNumber = 10
 
-labelMu = paste0("mu[", itemNumber, "]")
-labelLambda = paste0("lambda[", itemNumber, "]")
-itemParameters = modelBinomial_samples$draws(variables = c(labelMu, labelLambda), format = "draws_matrix")
-itemSummary = modelBinomial_samples$summary(variables = c(labelMu, labelLambda))
 
-# item plot
-theta = seq(-3,3,.1) # for plotting analysis lines--x axis values
+itemno <- 10
 
-# drawing item characteristic curves for item
-y = 4*exp(as.numeric(itemParameters[1,labelMu]) + as.numeric(itemParameters[1,labelLambda])*theta)/
-  (1+exp(as.numeric(itemParameters[1,labelMu]) + as.numeric(itemParameters[1,labelLambda])*theta)) +1
-plot(x = theta, y = y, type = "l", main = paste("Item", itemNumber, "ICC"), 
-     ylim=c(0,6), xlab = expression(theta), ylab=paste("Item", itemNumber,"Expected Value"))
-for (draw in 2:nrow(itemParameters)){
-  y =4*exp(as.numeric(itemParameters[draw,labelMu]) + as.numeric(itemParameters[draw,labelLambda])*theta)/
-    (1+exp(as.numeric(itemParameters[draw,labelMu]) + as.numeric(itemParameters[draw,labelLambda])*theta)) +1 
-  lines(x = theta, y = y)
+# Make predictions on the original scale. 
+# The mean of a bernoulli r.v. is E[X] = n * p.
+# (a) This is the probability times the number of trials (size = 4) which gives # values between 0 and 4. (b) But since the original scale is between 1 and 5, # we also need to add 1.
+# Given: n = 4, p, +1 to translate back on the outcome scale 
+draws_binom2plsi$y <- 4 * draws_binom2plsi$prob + 1
+
+theta_fixed
+draws_binom2plsi$y[,itemno]
+
+# Binomial ICC (item characteristic curve) for item 5
+# i.e.: E(Y_10| theta) -- on the outcome scale (1...5)
+plot(theta_fixed, mean(draws_binom2plsi$y[, itemno]), type = "l",
+  main = paste("Item", itemno, "ICC"), ylim = c(1, 5), lwd = 2,
+  xlab = expression(theta),
+  ylab = paste("Item", itemno, "Retrodicted Value")
+)
+yno_arr <- posterior::draws_of(draws_binom2plsi$y[, itemno])
+for (d in 1:100) {
+  lines(theta_fixed, yno_arr[d, , 1], col = "steelblue", lwd = 0.5)
 }
-
-# drawing limits
+# EAP
+lines(theta_fixed, mean(draws_binom2plsi$y[, itemno]), lwd = 5)
+# Drawing limits
 lines(x = c(-3,3), y = c(5,5), type = "l", col = 4, lwd=5, lty=2)
 lines(x = c(-3,3), y = c(1,1), type = "l", col = 4, lwd=5, lty=2)
+# Legend
+legend(-3, 4,
+  legend = c("Posterior Draw", "EAP"),
+  col = c("steelblue", "black"), lty = c(1, 1), lwd = 5
+)
 
-# drawing EAP line
-y = 4*exp(itemSummary$mean[which(itemSummary$variable==labelMu)] + 
-  itemSummary$mean[which(itemSummary$variable==labelLambda)]*theta)/
-  (1+exp(itemSummary$mean[which(itemSummary$variable==labelMu)] + 
-           itemSummary$mean[which(itemSummary$variable==labelLambda)]*theta)) +1
-lines(x = theta, y = y, lwd = 5, lty=3, col=2)
-
-# legend
-legend(x = -3, y = 4, legend = c("Posterior Draw", "Item Limits", "EAP"), col = c(1,4,2), lty = c(1,2,3), lwd=5)
+# todo todo todo
 
 
 # EAP Estimates of Latent Variables
