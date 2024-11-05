@@ -96,7 +96,7 @@ draws_cfa <- posterior::as_draws_rvars(fit_cfa$draws())
 theta_fixed <- seq(-3, 3, length.out = P)
 
 # Normal ICC
-itemno <- 10 
+itemno <- 10
 plot(NULL, ylim = c(-2, 6), xlim = range(theta_fixed), xlab = expression(theta))
 mu_arr <- posterior::draws_of(draws_cfa$mu[itemno])
 lambda_arr <- posterior::draws_of(draws_cfa$lambda[itemno])
@@ -230,7 +230,7 @@ max(fit_binom2pl_si$summary()$rhat, na.rm = TRUE)
 
 print(fit_binom2pl_si$summary(variables = c("mu", "lambda")), n = Inf)
 
-# E(Y| theta = theta_bar): A person with an average belief in conspiracies has a log-odds of -0.844 to say yes to any one option 0,...,4. 
+# E(Y| theta = theta_bar): A person with an average belief in conspiracies has a log-odds of -0.844 to succeed in any of the four trials, that is say yes to any one option 0,...,4. 
 fit_binom2plsi$summary(variables = "mu")[1,] # -0.844
 
 # How to make predictions on the outcome scale?
@@ -247,13 +247,13 @@ plogis(-0.844) # 0.3
 #########
 
 # Extract posterior draws
-draws_binom2plsi <- posterior::as_draws_rvars(fit_binom2pl_si$draws())
+draws_binom2plsi <- posterior::as_draws_rvars(fit_binom2plsi$draws())
 
 # Fixed theta values
 theta_fixed <- seq(-3, 3, length.out = P)
 
 draws_binom2plsi$logodds <- with(
-  draws_binom2pl_si, t(mu + lambda * t(theta_fixed)) # t() again to make P X I
+  draws_binom2plsi, t(mu + lambda * t(theta_fixed)) # t() again to make P X I
 )
 # Include estimation uncertainty in theta
 #draws_binom2pl_si$logodds <- with(
@@ -270,7 +270,6 @@ draws_binom2plsi$prob <- with(
 itemno <- 10
 plot(c(-3, 3), c(0, 1), type = "n", main = "Option Characteristic Curve",
       xlab = expression(theta), ylab = "P(Y |theta)")
-draws_binom2plsi$prob[, itemno]
 prob10_arr <- draws_of(draws_binom2plsi$prob[, itemno])
 for (o in seq_len(O)) { # For each of the five options
   for (d in 1:100) {    # For each draw
@@ -283,21 +282,18 @@ for (o in seq_len(O)) { # For each of the five options
   lines(theta_fixed, dbinom(o - 1, T,
         prob = mean(draws_binom2plsi$prob[, itemno])), lwd = 4)
 }
-legend("topright", legend = paste("Option", 1:5), col = 1:5, lwd = 3)
+legend("left", legend = paste("Option", 1:5), col = 1:5, lwd = 3)
 
-# investigating item parameters ================================================
-
+#################################
+# Investigating item parameters #
+#################################
 
 itemno <- 10
-
 # Make predictions on the original scale. 
 # The mean of a bernoulli r.v. is E[X] = n * p.
 # (a) This is the probability times the number of trials (size = 4) which gives # values between 0 and 4. (b) But since the original scale is between 1 and 5, # we also need to add 1.
 # Given: n = 4, p, +1 to translate back on the outcome scale 
 draws_binom2plsi$y <- 4 * draws_binom2plsi$prob + 1
-
-theta_fixed
-draws_binom2plsi$y[,itemno]
 
 # Binomial ICC (item characteristic curve) for item 5
 # i.e.: E(Y_10| theta) -- on the outcome scale (1...5)
@@ -321,39 +317,41 @@ legend(-3, 4,
   col = c("steelblue", "black"), lty = c(1, 1), lwd = 5
 )
 
-# todo todo todo
-
-
 # EAP Estimates of Latent Variables
-hist(modelBinomial_samples$summary(variables = c("theta"))$mean, main="EAP Estimates of Theta", 
-     xlab = expression(theta))
+hist(mean(draws_binom2plsi$theta), main = "EAP Estimates of Theta")
 
 # Comparing Two Posterior Distributions
-theta1 = "theta[1]"
-theta2 = "theta[2]"
-thetaSamples = modelBinomial_samples$draws(variables = c(theta1, theta2), format = "draws_matrix")
-thetaVec = rbind(thetaSamples[,1], thetaSamples[,2])
-thetaDF = data.frame(observation = c(rep(theta1,nrow(thetaSamples)), rep(theta2, nrow(thetaSamples))), 
-                     sample = thetaVec)
-names(thetaDF) = c("observation", "sample")
-ggplot(thetaDF, aes(x=sample, fill=observation)) +geom_density(alpha=.25)
+plot(c(-1,2), c(0,2.2), type = "n")
+theta1_arr <- as_draws_array(draws_binom2plsi$theta[1])
+polygon(density(theta1_arr), col = "2")
+theta2_arr <- as_draws_array(draws_binom2plsi$theta[2])
+polygon(density(theta2_arr), col = "3")
 
+# Comparing Latent Variable Posterior Means and SDs
 # Comparing EAP Estimates with Posterior SDs
-plot(y = modelBinomial_samples$summary(variables = c("theta"))$sd, 
-     x = modelBinomial_samples$summary(variables = c("theta"))$mean,
-     xlab = "E(theta|Y)", ylab = "SD(theta|Y)", main="Mean vs SD of Theta")
+# Note: This is the inverse of the Information function 
+plot(mean(draws_binom2plsi$theta),
+    sd(draws_binom2plsi$theta),
+    xlab = "E(theta|Y)", ylab = "SD(theta|Y)", main = "Mean vs SD of Theta")
 
 # Comparing EAP Estimates with Sum Scores
-plot(y = rowSums(conspiracyItemsBinomial), 
-     x = modelBinomial_samples$summary(variables = c("theta"))$mean,
+# Nonlinear pattern because of the logit vs id link
+plot(mean(draws_binom2plsi$theta), rowSums(citems),
      ylab = "Sum Score", xlab = expression(theta))
 
-# Comparing Thetas: Binomial vs Normal:
-plot(y = modelCFA_samples$summary(variables = c("theta"))$mean, 
-     x = modelBinomial_samples$summary(variables = c("theta"))$mean,
-     ylab = "Normal", xlab = "Binomial")
+# Comparing Thetas: Binomial vs Normal
+# Nonlinear pattern. Important: Max of Binomial around 2, Max of CFA around 3
+# We get different(!) estimates for the LV, we order people differently.
+# Binomial puts people 1/2 SD lower than the CFA model.
+# "Sorry you are 1/2 SD less intelligent because I picked the wrong p.d."
+plot(mean(draws_binom2plsi$theta), mean(draws_cfa$theta),
+    ylab = "Normal", xlab = "Binomial")
+# Draws into question the use of factor analytic models for Likert data!
 
-# Ordered Logit (Multinomial/categorical distribution) Model Syntax =======================
+############################
+# 2 POL SI (ordered-logit) #
+# (Slope-Intercept Form)   # 
+############################
 
 
 
