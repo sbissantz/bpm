@@ -355,6 +355,8 @@ plot(mean(draws_binom2plsi$theta), mean(draws_cfa$theta),
 
 
 
+
+
 modelOrderedLogit_syntax = "
 
 data {
@@ -398,38 +400,57 @@ generated quantities{
 
 "
 
+# compile model
+mdl_2polsi <- cmdstan_model("./stan/4d/2pol_si.stan", pedantic = TRUE)
+
+# Number of response categories
+# Important: Data need successive integers from 1 to highest number
+# (Recode if not consistent)
+C <- 5
+
+# Item intercept hyperparameters
+Thr_mean <- replicate(C - 1, rep(0, I)) # 10 x 4
+THR_cov <- array(0, dim = c(10, 4, 4)) # 10 x 4 x 4
+for(d in seq_len(I)) {
+  THR_cov[d , ,] <- diag(1000, C-1)
+}
+
+# Item discrimination/factor loading hyperparameters
+lambda_mean <- rep(0, I)
+Lambda_cov <- diag(1000, I)
+
+#############
+# Stan list #
+#############
+
+stanls_2polsi <- list(
+  "P" = P,
+  "I" = I,
+  "C" = C,
+  # Important transpose (array in stan are in row major order)
+  "Y" = t(citems),
+  "thr_mean" = Thr_mean,
+  "Thr_cov" = THR_cov,
+  "lambda_mean" = lambda_mean,
+  "Lambda_cov" = Lambda_cov 
+)
+
+# Run MCMC chain (sample from posterior p.d.)
+fit_2polsi <- mdl_2polsi$sample(
+  data = stanls_2polsi,
+  seed = 112,
+  chains = 4,
+  parallel_chains = 4,
+  iter_warmup = 3000,
+  iter_sampling = 2000,
+  # Mean should be below 10, since the log of it is too large
+  init = function() list(lambda = rnorm(I, mean = 5, sd = 1))
+)
+
+print(fit_2polsi$summary(), n = Inf)
+
+
 modelOrderedLogit_stan = cmdstan_model(stan_file = write_stan_file(modelOrderedLogit_syntax))
-
-
-# Data needs: successive integers from 1 to highest number (recode if not consistent)
-maxCategory = 5
-
-# data dimensions
-nObs = nrow(conspiracyItems)
-nItems = ncol(conspiracyItems)
-
-# item threshold hyperparameters
-thrMeanHyperParameter = 0
-thrMeanVecHP = rep(thrMeanHyperParameter, maxCategory-1)
-thrMeanMatrix = NULL
-for (item in 1:nItems){
-  thrMeanMatrix = rbind(thrMeanMatrix, thrMeanVecHP)
-}
-
-thrVarianceHyperParameter = 1000
-thrCovarianceMatrixHP = diag(x = thrVarianceHyperParameter, nrow = maxCategory-1)
-thrCovArray = array(data = 0, dim = c(nItems, maxCategory-1, maxCategory-1))
-for (item in 1:nItems){
-  thrCovArray[item, , ] = diag(x = thrVarianceHyperParameter, nrow = maxCategory-1)
-}
-
-# item discrimination/factor loading hyperparameters
-lambdaMeanHyperParameter = 0
-lambdaMeanVecHP = rep(lambdaMeanHyperParameter, nItems)
-
-lambdaVarianceHyperParameter = 1000
-lambdaCovarianceMatrixHP = diag(x = lambdaVarianceHyperParameter, nrow = nItems)
-
 
 modelOrderedLogit_data = list(
   nObs = nObs,
