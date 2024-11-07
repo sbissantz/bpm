@@ -353,53 +353,6 @@ plot(mean(draws_binom2plsi$theta), mean(draws_cfa$theta),
 # (Slope-Intercept Form)   # 
 ############################
 
-
-
-
-
-modelOrderedLogit_syntax = "
-
-data {
-  int<lower=0> nObs;                            // number of observations
-  int<lower=0> nItems;                          // number of items
-  int<lower=0> maxCategory; 
-  
-  array[nItems, nObs] int<lower=1, upper=5>  Y; // item responses in an array
-
-  array[nItems] vector[maxCategory-1] meanThr;   // prior mean vector for intercept parameters
-  array[nItems] matrix[maxCategory-1, maxCategory-1] covThr;      // prior covariance matrix for intercept parameters
-  
-  vector[nItems] meanLambda;         // prior mean vector for discrimination parameters
-  matrix[nItems, nItems] covLambda;  // prior covariance matrix for discrimination parameters
-}
-
-parameters {
-  vector[nObs] theta;                // the latent variables (one for each person)
-  array[nItems] ordered[maxCategory-1] thr; // the item thresholds (one for each item category minus one)
-  vector[nItems] lambda;             // the factor loadings/item discriminations (one for each item)
-}
-
-model {
-  
-  lambda ~ multi_normal(meanLambda, covLambda); // Prior for item discrimination/factor loadings
-  theta ~ normal(0, 1);                         // Prior for latent variable (with mean/sd specified)
-  
-  for (item in 1:nItems){
-    thr[item] ~ multi_normal(meanThr[item], covThr[item]);             // Prior for item thresholds
-    Y[item] ~ ordered_logistic(lambda[item]*theta, thr[item]);
-  }
-  
-}
-
-generated quantities{
-  array[nItems] vector[maxCategory-1] mu;
-  for (item in 1:nItems){
-    mu[item] = -1*thr[item];
-  }
-}
-
-"
-
 # compile model
 mdl_2polsi <- cmdstan_model("./stan/4d/2pol_si.stan", pedantic = TRUE)
 
@@ -447,53 +400,90 @@ fit_2polsi <- mdl_2polsi$sample(
   init = function() list(lambda = rnorm(I, mean = 5, sd = 1))
 )
 
+###############
+# Diagnostics #
+###############
+
+# Checking convergence
+fit_2polsi$cmdstan_diagnose()
+fit_2polsi$diagnostic_summary()
+max(fit_2polsi$summary()$rhat, na.rm = TRUE)
+
+# EES & overall
 print(fit_2polsi$summary(), n = Inf)
 
+#########
+# Draws #
+#########
 
-modelOrderedLogit_stan = cmdstan_model(stan_file = write_stan_file(modelOrderedLogit_syntax))
+draws_2polsi <- posterior::as_draws_rvars(fit_2polsi$draws())
 
-modelOrderedLogit_data = list(
-  nObs = nObs,
-  nItems = nItems,
-  maxCategory = maxCategory,
-  maxItem = maxItem,
-  Y = t(conspiracyItems), 
-  meanThr = thrMeanMatrix,
-  covThr = thrCovArray,
-  meanLambda = lambdaMeanVecHP,
-  covLambda = lambdaCovarianceMatrixHP
+###################
+# Item parameters #
+###################
+
+# Item parameters
+print(fit_2polsi$summary(variables = c("lambda", "mu")), n = Inf)
+
+itemno <- 10
+
+
+
+draws_binom2plsi$logodds <- with(
+  draws_binom2plsi, t(mu + lambda * t(theta_fixed)) # t() again to make P X I
+)
+# Include estimation uncertainty in theta
+#draws_binom2pl_si$logodds <- with(
+  #draws_binom2pl_si, t(mu + lambda * t(theta))
+#)
+
+draws_binom2plsi$prob <- with(
+  # Convert to probabilit (logit not implemented in rvars)
+  draws_binom2plsi, exp(logodds) / (1 + exp(logodds))
 )
 
-modelOrderedLogit_samples = modelOrderedLogit_stan$sample(
-  data = modelOrderedLogit_data,
-  seed = 121120221,
-  chains = 4,
-  parallel_chains = 4,
-  iter_warmup = 5000,
-  iter_sampling = 5000,
-  init = function() list(lambda=rnorm(nItems, mean=5, sd=1))
+# Fixed theta values
+theta_fixed <- seq(-3, 3, length.out = P)
+
+
+# Empty container for the category probabilities of item 10
+draws_2polsi$pno <- rvar(array(0, dim = c(8000, P, C)))
+
+# Calculate the category probabilities
+for (c in seq_len(C)) {
+  if (c == 1) {
+    draws_2polsi$pno[, c] <- with(draws_2polsi,
+      1 - (1 / (1 + exp(-(mu[itemno, c] + lambda[itemno] * theta_fixed)))))
+  } else if (c == 5) {
+    draws_2polsi$pno[, c] <- with(draws_2polsi,
+      (1 / (1 + exp(-(mu[itemno, c-1] + lambda[itemno] * theta_fixed)))) + 0)
+  } else {
+    draws_2polsi$pno[, c] <- with(draws_2polsi,
+      1 / (1 + exp(-(mu[itemno, c - 1] + lambda[itemno] * theta_fixed))) -
+        1 / (1 + exp(-(mu[itemno, c] + lambda[itemno] * theta_fixed))))
+  }
+}
+# Visualize (with uncertainty)
+plot(c(-3, 3), c(0, 1), type = "n", main = "Option Characteristic Curve",
+  xlab = expression(theta), ylab = "P(Y |theta)"
 )
+for (c in seq_len(C)) {
+  for (d in seq_len(100)) {
+    p_arr <- draws_of(draws_2polsi$pno[, c])
+    lines(theta_fixed, p_arr[d, , ], lwd = 0.3, col = c + 1)
+  }
+  # EAP lines
+  lines(theta_fixed, mean(draws_2polsi$pno[, c]), lty = c, lwd = 5)
+}
+legend("left", legend = paste("Category", 1:5), col = 2:6, lty = 1:5, lwd = 3)
 
-# checking convergence
-max(modelOrderedLogit_samples$summary()$rhat, na.rm = TRUE)
 
-# item parameter results
-print(modelOrderedLogit_samples$summary(variables = c("lambda", "mu")) ,n=Inf)
-
+# todo todo todo
 
 ## investigating option characteristic curves ===================================
-itemNumber = 10
 
-labelMu = paste0("mu[", itemNumber, ",", 1:4, "]")
-labelLambda = paste0("lambda[", itemNumber, "]")
-muParams = modelOrderedLogit_samples$summary(variables = labelMu)
-lambdaParams = modelOrderedLogit_samples$summary(variables = labelLambda)
+modelOrderedLogit_samples <- fit_2polsi
 
-# item plot
-theta = seq(-3,3,.1) # for plotting analysis lines--x axis values
-y = NULL
-thetaMat = NULL
-expectedValue = 0
 
 option = 1
 for (option in 1:5){
@@ -529,6 +519,9 @@ matplot(x = thetaMat, y = y, type="l", xlab=expression(theta), ylab="P(Y |theta)
 
 legend(x = -3, y = .8, legend = paste("Option", 1:5), lty = 1:5, col=1:5, lwd=3)
 
+
+
+
 ## plot of EAP of expected value per item ======================================================
 plot(x = theta, y = expectedValue, type = "l", main = paste("Item", itemNumber, "ICC"), 
      ylim=c(0,6), xlab = expression(theta), ylab=paste("Item", itemNumber,"Expected Value"), lwd = 5, lty=3, col=2)
@@ -536,6 +529,14 @@ plot(x = theta, y = expectedValue, type = "l", main = paste("Item", itemNumber, 
 # drawing limits
 lines(x = c(-3,3), y = c(5,5), type = "l", col = 4, lwd=5, lty=2)
 lines(x = c(-3,3), y = c(1,1), type = "l", col = 4, lwd=5, lty=2)
+
+
+
+
+
+
+
+
 
 # EAP Estimates of Latent Variables
 hist(modelOrderedLogit_samples$summary(variables = c("theta"))$mean, 
