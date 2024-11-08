@@ -365,7 +365,7 @@ C <- 5
 Thr_mean <- replicate(C - 1, rep(0, I)) # 10 x 4
 THR_cov <- array(0, dim = c(10, 4, 4)) # 10 x 4 x 4
 for(d in seq_len(I)) {
-  THR_cov[d , ,] <- diag(1000, C-1)
+  THR_cov[d , ,] <- diag(1000, C - 1)
 }
 
 # Item discrimination/factor loading hyperparameters
@@ -425,26 +425,12 @@ draws_2polsi <- posterior::as_draws_rvars(fit_2polsi$draws())
 # Item parameters
 print(fit_2polsi$summary(variables = c("lambda", "mu")), n = Inf)
 
+
+# Visualize the OCC for item number 10
 itemno <- 10
-
-
-
-draws_binom2plsi$logodds <- with(
-  draws_binom2plsi, t(mu + lambda * t(theta_fixed)) # t() again to make P X I
-)
-# Include estimation uncertainty in theta
-#draws_binom2pl_si$logodds <- with(
-  #draws_binom2pl_si, t(mu + lambda * t(theta))
-#)
-
-draws_binom2plsi$prob <- with(
-  # Convert to probabilit (logit not implemented in rvars)
-  draws_binom2plsi, exp(logodds) / (1 + exp(logodds))
-)
 
 # Fixed theta values
 theta_fixed <- seq(-3, 3, length.out = P)
-
 
 # Empty container for the category probabilities of item 10
 draws_2polsi$pno <- rvar(array(0, dim = c(8000, P, C)))
@@ -470,101 +456,57 @@ plot(c(-3, 3), c(0, 1), type = "n", main = "Option Characteristic Curve",
 for (c in seq_len(C)) {
   for (d in seq_len(100)) {
     p_arr <- draws_of(draws_2polsi$pno[, c])
-    lines(theta_fixed, p_arr[d, , ], lwd = 0.3, col = c + 1)
+    lines(theta_fixed, p_arr[d, , ], lwd = 0.4, lty = c, col = c + 1)
   }
   # EAP lines
   lines(theta_fixed, mean(draws_2polsi$pno[, c]), lty = c, lwd = 5)
 }
 legend("left", legend = paste("Category", 1:5), col = 2:6, lty = 1:5, lwd = 3)
 
-
-# todo todo todo
-
-## investigating option characteristic curves ===================================
-
-modelOrderedLogit_samples <- fit_2polsi
-
-
-option = 1
-for (option in 1:5){
-  if (option==1){
-    prob = 1 - exp(muParams$mean[which(muParams$variable == labelMu[option])] + 
-                 lambdaParams$mean[which(lambdaParams$variable == labelLambda[1])]*theta)/
-      (1+exp(muParams$mean[which(muParams$variable == labelMu[option])] + 
-               lambdaParams$mean[which(lambdaParams$variable == labelLambda[1])]*theta))
-  } else if (option == 5){
-    
-    prob = (exp(muParams$mean[which(muParams$variable == labelMu[option-1])] + 
-                  lambdaParams$mean[which(lambdaParams$variable == labelLambda[1])]*theta)/
-              (1+exp(muParams$mean[which(muParams$variable == labelMu[option-1])] + 
-                       lambdaParams$mean[which(lambdaParams$variable == labelLambda[1])]*theta)))
-  } else {
-    prob = (exp(muParams$mean[which(muParams$variable == labelMu[option-1])] + 
-                  lambdaParams$mean[which(lambdaParams$variable == labelLambda[1])]*theta)/
-              (1+exp(muParams$mean[which(muParams$variable == labelMu[option-1])] + 
-                       lambdaParams$mean[which(lambdaParams$variable == labelLambda[1])]*theta))) -
-      exp(muParams$mean[which(muParams$variable == labelMu[option])] + 
-            lambdaParams$mean[which(lambdaParams$variable == labelLambda[1])]*theta)/
-      (1+exp(muParams$mean[which(muParams$variable == labelMu[option])] + 
-               lambdaParams$mean[which(lambdaParams$variable == labelLambda[1])]*theta))
-  }
-  
-  thetaMat = cbind(thetaMat, theta)
-  expectedValue = expectedValue + prob*option
-  y = cbind(y, prob)
+# Make predictions on the outcome scale (1...5)
+# Expected value for the item number 10
+expctitmno <- with(
+  draws_2polsi,
+  # Probability weight * option/category
+  pno[, 1] * 1 + pno[, 2] * 2 + pno[, 3] * 3 + pno[, 4] * 4 + pno[, 5] * 5
+  # Note: This gives us values between 1...5 
+)
+# Extendable version 
+expctitmno <- 0
+for (c in seq_len(C)) {
+  expctitmno <- expctitmno + draws_2polsi$pno[, c] * c
 }
-
-matplot(x = thetaMat, y = y, type="l", xlab=expression(theta), ylab="P(Y |theta)", 
-        main=paste0("Option Characteristic Curves for Item ", itemNumber), lwd=3)
-
-legend(x = -3, y = .8, legend = paste("Option", 1:5), lty = 1:5, col=1:5, lwd=3)
-
-
-
-
-## plot of EAP of expected value per item ======================================================
-plot(x = theta, y = expectedValue, type = "l", main = paste("Item", itemNumber, "ICC"), 
-     ylim=c(0,6), xlab = expression(theta), ylab=paste("Item", itemNumber,"Expected Value"), lwd = 5, lty=3, col=2)
-
-# drawing limits
-lines(x = c(-3,3), y = c(5,5), type = "l", col = 4, lwd=5, lty=2)
-lines(x = c(-3,3), y = c(1,1), type = "l", col = 4, lwd=5, lty=2)
-
-
-
-
-
-
-
-
+expctitmno_arr <- draws_of(expctitmno)
+plot( c(-3,3), c(1,5), type = "n", xlab = expression(theta), ylab = paste("Item", itemno,"Expected Value"))
+for(d in 1:100) {
+  lines( theta_fixed, expctitmno_arr[d, ,], col = "steelblue", lwd = 0.4)
+}
+# EAP line
+lines( theta_fixed, mean(expctitmno), lwd = 5)
+# Boundaries (1...5)
+lines(x = c(-3, 3), y = c(5, 5), type = "l", col = 2, lwd = 2, lty = 2)
+lines(x = c(-3, 3), y = c(1, 1), type = "l", col = 2, lwd = 2, lty = 2)
 
 # EAP Estimates of Latent Variables
-hist(modelOrderedLogit_samples$summary(variables = c("theta"))$mean, 
-     main="EAP Estimates of Theta", 
-     xlab = expression(theta))
+hist(mean(draws_2polsi$theta), main = "EAP Estimates of Theta", xlab = expression(theta))
 
 # Comparing Two Posterior Distributions
-theta1 = "theta[1]"
-theta2 = "theta[2]"
-thetaSamples = modelOrderedLogit_samples$draws(
-  variables = c(theta1, theta2), format = "draws_matrix")
-thetaVec = rbind(thetaSamples[,1], thetaSamples[,2])
-thetaDF = data.frame(
-  observation = c(rep(theta1,nrow(thetaSamples)), rep(theta2, nrow(thetaSamples))), 
-  sample = thetaVec)
-names(thetaDF) = c("observation", "sample")
-ggplot(thetaDF, aes(x=sample, fill=observation)) +geom_density(alpha=.25)
+plot(c(-1,2), c(0,2.2), type = "n")
+theta1_arr <- as_draws_array(draws_2polsi$theta[1])
+polygon(density(theta1_arr), col = "2")
+theta2_arr <- as_draws_array(draws_2polsi$theta[2])
+polygon(density(theta2_arr), col = "3")
+
+# todo todo
 
 # Comparing EAP Estimates with Posterior SDs
-
-plot(y = modelOrderedLogit_samples$summary(variables = c("theta"))$sd, 
-     x = modelOrderedLogit_samples$summary(variables = c("theta"))$mean,
-     xlab = "E(theta|Y)", ylab = "SD(theta|Y)", main="Mean vs SD of Theta")
+# Inverse item information plot
+plot(mean(draws_2polsi$theta), sd(draws_2polsi$theta),
+  xlab = "E(theta|Y)", ylab = "SD(theta|Y)", main = "Mean vs SD of Theta")
 
 # Comparing EAP Estimates with Sum Scores
-plot(y = rowSums(conspiracyItems), 
-     x = modelOrderedLogit_samples$summary(variables = c("theta"))$mean,
-     ylab = "Sum Score", xlab = expression(theta))
+plot(mean(draws_2polsi$theta), rowSums(citems),
+  ylab = "Sum Score", xlab = expression(theta))
 
 # Comparing Thetas: Ordered Logit vs Normal:
 plot(y = modelCFA_samples$summary(variables = c("theta"))$mean, 
