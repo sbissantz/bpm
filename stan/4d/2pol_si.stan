@@ -1,4 +1,4 @@
-data{
+data {
   int<lower = 0> P;             // number of respondents 
   int<lower = 0> I;             // number of items
   int<lower = 0> C;             // number of categories
