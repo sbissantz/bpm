@@ -425,7 +425,6 @@ draws_2polsi <- posterior::as_draws_rvars(fit_2polsi$draws())
 # Item parameters
 print(fit_2polsi$summary(variables = c("lambda", "mu")), n = Inf)
 
-
 # Visualize the OCC for item number 10
 itemno <- 10
 
@@ -462,6 +461,12 @@ for (c in seq_len(C)) {
   lines(theta_fixed, mean(draws_2polsi$pno[, c]), lty = c, lwd = 5)
 }
 legend("left", legend = paste("Category", 1:5), col = 2:6, lty = 1:5, lwd = 3)
+# The OCCS of the Binomial are way more symmetric than those from the GRM.
+# This is because the Binomial uses the p.m.f. to get the probabilities for each
+# category. In the GRM the probabilities are governed by from the *estimated*
+# intercepts. In the GRM we have 4 submodels (p1,...,p4) with different
+# intercepts (but parallel slopes: 1 – no parameter like in 3PL) therefore
+# their location differ – some are further apart than others.
 
 # Make predictions on the outcome scale (1...5)
 # Expected value for the item number 10
@@ -486,63 +491,92 @@ lines( theta_fixed, mean(expctitmno), lwd = 5)
 # Boundaries (1...5)
 lines(x = c(-3, 3), y = c(5, 5), type = "l", col = 2, lwd = 2, lty = 2)
 lines(x = c(-3, 3), y = c(1, 1), type = "l", col = 2, lwd = 2, lty = 2)
+# Interpret
+abline(v = c(0, 1, 2), lty = 2)
+# S.o. with an average belief in conspiracy is expected to answer 1 on item 10
+# S.o. with a high belief in conspiracy (theta = 2) is expecte to answer 4 on
+# item 10.
 
 # EAP Estimates of Latent Variables
-hist(mean(draws_2polsi$theta), main = "EAP Estimates of Theta", xlab = expression(theta))
+hist(mean(draws_2polsi$theta), main = "EAP Estimates of Theta", xlab = expression(theta), probability = TRUE)
+# Scale to probabilites and density
+hist(mean(draws_2polsi$theta), main = "EAP Estimates of Theta", xlab = expression(theta), probability = TRUE)
+lines(density(mean(draws_2polsi$theta)), lwd = 2)
+# Instead of the binomial model the GRM allows for multimodality, because we
+# allow for a shoft in location.
 
 # Comparing Two Posterior Distributions
-plot(c(-1,2), c(0,2.2), type = "n")
+plot(c(-1,2), c(0,2.2), type = "n", xlab = "sample", ylab = "density")
 theta1_arr <- as_draws_array(draws_2polsi$theta[1])
 polygon(density(theta1_arr), col = "2")
 theta2_arr <- as_draws_array(draws_2polsi$theta[2])
 polygon(density(theta2_arr), col = "3")
 
-# todo todo
-
 # Comparing EAP Estimates with Posterior SDs
 # Inverse item information plot
 plot(mean(draws_2polsi$theta), sd(draws_2polsi$theta),
   xlab = "E(theta|Y)", ylab = "SD(theta|Y)", main = "Mean vs SD of Theta")
+# Where is theta most precise? Multimodality! Information functions in 
+# polytomous items are not always single-peaked. So you can have multiple spots
+# of maximum information.
 
 # Comparing EAP Estimates with Sum Scores
 plot(mean(draws_2polsi$theta), rowSums(citems),
   ylab = "Sum Score", xlab = expression(theta))
+# Non-linear function because of logistic function / logit link
 
 # Comparing Thetas: Ordered Logit vs Normal:
-plot(y = modelCFA_samples$summary(variables = c("theta"))$mean, 
-     x = modelOrderedLogit_samples$summary(variables = c("theta"))$mean,
-     ylab = "Normal", xlab = "Ordered Logit")
+plot(mean(draws_2polsi$theta), mean(draws_cfa$theta),
+  ylab = "Normal", xlab = "Ordered Logit")
+# Non-linear function because of logistic function / logit link
 
 # Comparing Theta SDs: Ordered Logit vs Normal:
-plot(y = modelCFA_samples$summary(variables = c("theta"))$sd, 
-     x = modelOrderedLogit_samples$summary(variables = c("theta"))$sd,
-     ylab = "Normal", xlab = "Ordered Logit", main="Posterior SDs")
+plot(sd(draws_2polsi$theta), sd(draws_cfa$theta),
+  main = "Posterior SDs",
+  ylab = "Normal", xlab = "Ordered Logit")
 
 # Which is bigger?
-hist(modelCFA_samples$summary(variables = c("theta"))$sd-
-       modelOrderedLogit_samples$summary(variables = c("theta"))$sd,
-     main = "SD(normal) - SD(ordered)")
+hist(sd(draws_2polsi$theta) - sd(draws_cfa$theta),
+  main = "SD(normal) - SD(ordered)")
+abline(v = 0, lwd = 2, lty = 2)
+
+# If we compare the info functions between 2POL and CFA the curves of the CFA
+# model are úsually much higher.
+
+# How to get more precision/reliability and more precision for theta?
+# 1. More items
+# 2. More categories (max. continous – CFA)
+# More categories allow for more info
+# Problem: People cannot differentiate above a certain thresholds.
 
 # Comparing Thetas: Ordered Logit vs Binomial:
-plot(y = modelBinomial_samples$summary(variables = c("theta"))$mean, 
-     x = modelOrderedLogit_samples$summary(variables = c("theta"))$mean,
-     ylab = "Binomial", xlab = "Ordered Logit")
+plot(mean(draws_2polsi$theta), mean(draws_binom2plsi$theta),
+  ylab = "Binomial", xlab = "Ordered Logit")
+# Little non-linearity. Which one should we take?
+# The one that fits the data best / makes the best OOS predictions
 
 # Comparing Theta SDs: Ordered Logit vs Binomial:
-plot(y = modelBinomial_samples$summary(variables = c("theta"))$sd, 
-     x = modelOrderedLogit_samples$summary(variables = c("theta"))$sd,
-     ylab = "Binomial", xlab = "Ordered Logit", main="Posterior SDs")
+hist(sd(draws_binom2plsi$theta) - sd(draws_2polsi$theta),
+  main = "SD(binomial) - SD(ordered)",
+  ylab = "Normal", xlab = "Ordered Logit")
+# Binomial
+
 
 # Which is bigger?
 hist(modelBinomial_samples$summary(variables = c("theta"))$sd-
        modelOrderedLogit_samples$summary(variables = c("theta"))$sd,
      main = "SD(binomial) - SD(ordered)")
 
+############################################
+# 2 PCL SI (categorical/multinomial-logit) #
+# (Slope-Intercept Form)                   #
+# aka. Nominal Response Model – in IRT     #
+############################################
 
+# todo todo todo
 
 # Categorical Logit (Multinomial/categorical distribution) Model Syntax =======================
 # Also known as: Nominal Response Model (in IRT literature) 
-
 
 modelCategoricalLogit_syntax = "
 data {
