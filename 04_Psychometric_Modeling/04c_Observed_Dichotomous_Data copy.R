@@ -618,7 +618,7 @@ stanls_1pl_dd <- list(
 # Fit the model to the data
 fit_1pl_dd <- mdl_1pl_dd$sample(
   data = stanls_1pl_dd,
-  seed = 021120221,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
   iter_warmup = 3000,
