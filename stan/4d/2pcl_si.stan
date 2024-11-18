@@ -4,7 +4,7 @@ data {
   int<lower = 0> I;             // Number of items
   int<lower = 0> C;             // Number of categories 
   // Important: The data are P x I, but we need I x P (row major order)
-  array[I, P] int<lower = 1, upper = C> Y; // Item response array
+  array[I, P] int<lower=1, upper= C> Y; // Item response array
   // Hyperparameters
   array[I] vector[C-1] mu_mean;          // Prior means for intercepts
   array[I] matrix[C-1, C-1] Mu_cov;      // Prior covmats for intercepts
@@ -30,7 +30,7 @@ transformed parameters {
 }
 
 model {
-vector[C] s; // "s": Simplex (probability vector)
+vector[C] s; // s: Simplex (probability vector)
 // Priors
 theta ~ std_normal();      // Standardized LV
 for(i in 1:I) {
@@ -45,7 +45,7 @@ for(i in 1:I) {
   for(p in 1:P) {
     for(i in 1:I) {
       for(c in 1:C) {
-        s[i] = mu[i, c] + lambda[i, c] * theta[p]; // Model 1:category, item
+        s[c] = mu[i, c] + lambda[i, c] * theta[p]; // Model 1:category, item
         } 
         Y[i, p] ~ categorical_logit(s);  
       } 
