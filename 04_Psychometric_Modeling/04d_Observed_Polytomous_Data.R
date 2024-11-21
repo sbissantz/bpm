@@ -567,8 +567,7 @@ hist(sd(draws_binom2plsi$theta) - sd(draws_2polsi$theta),
 
 
 # Which is bigger?
-hist(modelBinomial_samples$summary(variables = c("theta"))$sd-
-       modelOrderedLogit_samples$summary(variables = c("theta"))$sd,
+hist(sd(draws_binom2plsi$theta) - sd(draws_2polsi$theta),
      main = "SD(binomial) - SD(ordered)")
 
 ############################################
@@ -576,6 +575,9 @@ hist(modelBinomial_samples$summary(variables = c("theta"))$sd-
 # (Slope-Intercept Form)                   #
 # aka. Nominal Response Model – in IRT     #
 ############################################
+
+# Note: By fitting a nominal response model to polytomous data we are 
+# testing whether or not the order assumption of the GRM holds.
 
 # Compile model
 mdl_2pclsi <- cmdstan_model("./stan/4d/2pcl_si.stan", pedantic = TRUE)
@@ -645,44 +647,65 @@ fit_2pclsi <- mdl_2pclsi$sample(
   init = function() list("theta" = rnorm(P, mean = theta_init, sd = 0))
 )
 
-# todo todo
+###########
+# Summary #
+###########
 
 fit_2pclsi$summary(variables = "mu_init")
 
+###############
+# Diagnostics #
+###############
 
-## investigating option characteristic curves ===================================
-itemNumber = 10
+# Assess convergence: summary of all parameters
+fit_2pclsi$cmdstan_diagnose()
+fit_2pclsi$diagnostic_summary()
 
-labelMu = paste0("mu[", itemNumber, ",", 1:5, "]")
-muParams = modelCategoricalLogit_samples$summary(variables = labelMu)
+#########
+# Draws #
+#########
 
-labelLambda = paste0("lambda[", itemNumber, ",", 1:5, "]")
-lambdaParams = modelCategoricalLogit_samples$summary(variables = labelLambda)
+draws_2pclsi <- posterior::as_draws_rvars(fit_2pclsi$draws())
 
-# item plot
-theta = seq(-3,3,.1) # for plotting analysis lines--x axis values
-thetaMat = NULL
+############# 
+# Visualize #
+############# 
 
-logit=NULL
-prob=NULL
-probsum = 0
-option = 1
-for (option in 1:5){
-  logit = cbind(logit, muParams$mean[option] + lambdaParams$mean[option]*theta)
-  prob = cbind(prob, exp(logit[,option]))
-  probsum = probsum+ exp(logit[,option])
+itemno <- 10
+
+theta_fixed <- seq(-3, 3, length.out = P)
+
+draws_2pclsi$logit10 <- rvar(array(0, dim = c(8000, P, C)))
+draws_2pclsi$s10 <- rvar(array(0, dim = c(8000, P, C)))
+
+# Define the "total" normalization constant – denominator in the softmax
+total <- rvar_apply(exp(draws_2pclsi$logit), 1, rvar_sum)
+
+for (c in 1:C) {
+  draws_2pclsi$logit10[, c] <- t(draws_2pclsi$mu[itemno, c] +
+    draws_2pclsi$lambda[itemno, c] * t(theta_fixed))
+  # Include estimation uncertainty in theta
+  # t( with(draws_2pclsi, mu[itemno,c] + lambda[itemno,c] * t(theta)) )
+  # Inverse Softmax aka "divide by total"
+  draws_2pclsi$s10[, c] <- exp(draws_2pclsi$logit10[, c]) / total
 }
 
-for (option in 1:5){
-  thetaMat = cbind(thetaMat, theta)
-  prob[,option] = prob[,option]/probsum
+plot(c(-3, 3), c(0, 1), type = "n", main = "Option Characteristic Curve",
+  xlab = expression(theta), ylab = "P(Y |theta)"
+)
+s10_arr <- draws_of(draws_2pclsi$s10)
+s10_mean <- mean(draws_2pclsi$s10)
+for(c in 1:C) {
+  for(d in 1:100) {
+    lines(theta_fixed, s10_arr[d, , c], lwd = 0.4, lty = c, col = c + 1)
+  }
+  lines(theta_fixed, s10_mean[, c], lwd = 5, lty = c, col = c + 1)
 }
+legend(x = -3, y = .8, legend = paste("Category", 1:5), lty = 1:5, col = 2:6, lwd = 3)
 
-matplot(x = thetaMat, y = prob, type="l", xlab=expression(theta), ylab="P(Y |theta)", 
-        main=paste0("Option Characteristic Curves for Item ", itemNumber), lwd=3)
+# todo todo todo
 
-legend(x = -3, y = .8, legend = paste("Option", 1:5), lty = 1:5, col=1:5, lwd=3)
-
+modelCategoricalLogit_samples <- fit_2pclsi
 
 # Comparing EAP Estimates with Posterior SDs
 
