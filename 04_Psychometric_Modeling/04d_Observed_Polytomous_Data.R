@@ -352,10 +352,11 @@ plot(mean(draws_binom2plsi$theta), mean(draws_cfa$theta),
     ylab = "Normal", xlab = "Binomial")
 # Draws into question the use of factor analytic models for Likert data!
 
-############################
-# 2 POL SI (ordered-logit) #
-# (Slope-Intercept Form)   # 
-############################
+##############################
+# 2 POL SI (ordered-logit)   #
+# (Slope-Intercept Form)     # 
+# aka. Graded Response Model #
+##############################
 
 # compile model
 mdl_2polsi <- cmdstan_model("./stan/4d/2pol_si.stan", pedantic = TRUE)
@@ -673,14 +674,19 @@ draws_2pclsi <- posterior::as_draws_rvars(fit_2pclsi$draws())
 
 itemno <- 10
 
+# Fixed theta values
 theta_fixed <- seq(-3, 3, length.out = P)
 
+# Empty container for the category logits of item 10
 draws_2pclsi$logit10 <- rvar(array(0, dim = c(8000, P, C)))
+
+# Empty container for the category probabilities of item 10
 draws_2pclsi$s10 <- rvar(array(0, dim = c(8000, P, C)))
 
-# Define the "total" normalization constant – denominator in the softmax
-total <- rvar_apply(exp(draws_2pclsi$logit), 1, rvar_sum)
+# Define the "total", i.e. normalization constant – denominator in the softmax
+total <- rvar_apply(exp(draws_2pclsi$logit10), 1, rvar_sum)
 
+# Calculate the category logits and probabilities for item 10
 for (c in 1:C) {
   draws_2pclsi$logit10[, c] <- t(draws_2pclsi$mu[itemno, c] +
     draws_2pclsi$lambda[itemno, c] * t(theta_fixed))
@@ -690,60 +696,54 @@ for (c in 1:C) {
   draws_2pclsi$s10[, c] <- exp(draws_2pclsi$logit10[, c]) / total
 }
 
+# Visualize (with uncertainty)
 plot(c(-3, 3), c(0, 1), type = "n", main = "Option Characteristic Curve",
   xlab = expression(theta), ylab = "P(Y |theta)"
 )
 s10_arr <- draws_of(draws_2pclsi$s10)
 s10_mean <- mean(draws_2pclsi$s10)
 for(c in 1:C) {
-  for(d in 1:100) {
+  for(d in 1:50) {
     lines(theta_fixed, s10_arr[d, , c], lwd = 0.4, lty = c, col = c + 1)
   }
-  lines(theta_fixed, s10_mean[, c], lwd = 5, lty = c, col = c + 1)
+  lines(theta_fixed, s10_mean[, c], lwd = 5, lty = c + 1, col = c + 1)
 }
-legend(x = -3, y = .8, legend = paste("Category", 1:5), lty = 1:5, col = 2:6, lwd = 3)
+legend(x = -3, y = .8, legend = paste("Category", 1:5), lty = 2:6, col = 2:6, lwd = 3)
 
-# todo todo todo
 
 modelCategoricalLogit_samples <- fit_2pclsi
+conspiracyItems <- citems
 
 # Comparing EAP Estimates with Posterior SDs
-
-plot(y = modelCategoricalLogit_samples$summary(variables = c("theta"))$sd, 
-     x = modelCategoricalLogit_samples$summary(variables = c("theta"))$mean,
-     xlab = "E(theta|Y)", ylab = "SD(theta|Y)", main="Mean vs SD of Theta")
+# Inverse item information plot (non-linear)
+plot(mean(draws_2pclsi$theta), sd(draws_2pclsi$theta), 
+     xlab = "SD(theta|Y)", ylab = "E(theta|Y)", main = "SD vs EAP of Theta")
 
 # Comparing EAP Estimates with Sum Scores
-plot(y = rowSums(conspiracyItems), 
-     x = modelCategoricalLogit_samples$summary(variables = c("theta"))$mean,
+plot(mean(draws_2pclsi$theta), rowSums(citems), 
      ylab = "Sum Score", xlab = expression(theta))
 
-# Comparing Thetas: Categorical Logit vs Normal:
-plot(y = modelCFA_samples$summary(variables = c("theta"))$mean, 
-     x = modelCategoricalLogit_samples$summary(variables = c("theta"))$mean,
+# Comparing Thetas of the 2PCL (NRM) vs CFA
+plot(mean(draws_2pclsi$theta), mean(draws_cfa$theta),
      ylab = "Normal", xlab = "Categorical Logit")
 
-# Comparing Theta SDs: Categorical Logit vs Normal:
-plot(y = modelCFA_samples$summary(variables = c("theta"))$sd, 
-     x = modelCategoricalLogit_samples$summary(variables = c("theta"))$sd,
+# Comparing Theta SDs of the 2PCL (NRM) vs CFA
+plot(sd(draws_2pclsi$theta), sd(draws_cfa$theta),
      ylab = "Normal", xlab = "Categorical Logit", main="Posterior SDs")
-
 # Which is bigger?
-hist(modelCFA_samples$summary(variables = c("theta"))$sd-
-       modelCategoricalLogit_samples$summary(variables = c("theta"))$sd,
+hist(sd(draws_2pclsi$theta) - sd(draws_cfa$theta),
      main = "SD(normal) - SD(categorical)")
+# SD of the NRM are bigger than the SD of the CFA     
 
-# Comparing Thetas: Categorical Logit vs Ordinal:
-plot(y = modelCategoricalLogit_samples$summary(variables = c("theta"))$mean, 
-     x = modelOrderedLogit_samples$summary(variables = c("theta"))$mean,
-     ylab = "NRM", xlab = "GRM")
+# Comparing Thetas of the 2PCL (NRM) vs 2POL (GRM)
+plot(mean(draws_2pclsi$theta), mean(draws_2polsi$theta), 
+     ylab = "Ordinal", xlab = "Categorical Logit")
 
-# Comparing Theta SDs: Ordered Logit vs Binomial:
-plot(y = modelCategoricalLogit_samples$summary(variables = c("theta"))$sd, 
-     x = modelOrderedLogit_samples$summary(variables = c("theta"))$sd,
-     ylab = "NRM", xlab = "GRM", main="Posterior SDs")
-
+# Comparing Theta SDs of the 2PCL (NRM) vs 2POL (GRM)
+plot(sd(draws_2pclsi$theta), sd(draws_2polsi$theta), 
+     ylab = "Ordinal", xlab = "Categorical Logit", main="Posterior SDs")
 # Which is bigger?
-hist(modelCategoricalLogit_samples$summary(variables = c("theta"))$sd-
-       modelOrderedLogit_samples$summary(variables = c("theta"))$sd,
-     main = "SD(NRM) - SD(GRM)")
+hist(sd(draws_2pclsi$theta) - sd(draws_2polsi$theta),
+     main = "SD(categorical) - SD(ordinal)")
+# SD of the NRM are bigger than the SD of the GRM 
+# Reason: Because the NRM estimates the thresholds from the data?
