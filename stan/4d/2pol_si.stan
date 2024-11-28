@@ -11,9 +11,9 @@ data {
   array[I] matrix[C-1, C-1] Thr_cov;      // prior covmats for intercepts
 }
 
-parameters{
+parameters {
   vector[I] lambda;               // Loadings/discrimination/slopes  (1:item)
-  array[I] ordered[C-1] thr;      //  Ord. vecs of intercepts (C-1:item)
+  array[I] ordered[C-1] thr;      // Ord. vecs of intercepts (C-1:item)
   vector[P] theta;                // Latent trait (1:person)
 }
 
@@ -31,7 +31,7 @@ model {
 }
 
 generated quantities {
-  array[I] vector[C-1] mu;      // Array of an ordered vector of intercepts
+  array[I] vector[C-1] mu;      // Array of a vector of intercepts
   for(i in 1:I) {
     mu[i] = -1*thr[i];              // From tresholds to intercepts
   }
