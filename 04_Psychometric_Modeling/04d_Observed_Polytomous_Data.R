@@ -366,7 +366,7 @@ mdl_2polsi <- cmdstan_model("./stan/4d/2pol_si.stan", pedantic = TRUE)
 # (Recode if not consistent)
 C <- 5
 
-# Item intercept hyperparameters
+# Item threshold hyperparameters
 Thr_mean <- replicate(C - 1, rep(0, I)) # 10 x 4
 THR_cov <- array(0, dim = c(10, 4, 4)) # 10 x 4 x 4
 for(d in seq_len(I)) {
