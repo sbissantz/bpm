@@ -310,7 +310,8 @@ fit_2pl_si2 <- mdl_2pl_si2$sample(
   init = function() list(lambda = rnorm(I, mean = 5, sd = 1))
 )
 
-# diagnostics 
+
+# Diagnostics 
 max(fit_2pl_si2$summary()$rhat, na.rm = TRUE)
 fit_2pl_si2$cmdstan_diagnose()
 fit_2pl_si2$diagnostic_summary()
