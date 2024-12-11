@@ -158,7 +158,9 @@ plot(mean(draws_cfa$mu), mean(draws_cfappip$mu),
 
 hist(mean(draws_cfa$mu) - mean(draws_cfappip$mu),
      xlab = "Mu EAP Difference", 
-     main = "Uninformative Mu Prior EAP(mu) - Empirical Mu Prior EAP(mu)")
+     main = "Uninformative Mu Prior - Empirical Mu Prior")
+# 9/10 times the uniformative prior p.d.'s EAP(mu) is higher 
+sum(mean(draws_cfa$mu) > mean(draws_cfappip$mu))
 
 # Comparing intercept SD estimates: uninformative vs. empirical prior
 
@@ -168,7 +170,9 @@ plot(sd(draws_cfa$mu), sd(draws_cfappip$mu),
 
 hist(sd(draws_cfa$mu) - sd(draws_cfappip$mu),
      xlab = "Mu SD Difference",
-     main = "Uninformative Mu Prior SD(mu) - Empirical Mu Prior SD(mu)")
+     main = "Uninformative Mu Prior - Empirical Mu Prior")
+# 7/10 times the uniformative prior p.d.'s SD(mu) is higher 
+sum(sd(draws_cfa$mu) > sd(draws_cfappip$mu))
 
 # Comparing factor loading EAP estimates: uninformative vs. empirical prior
 
@@ -178,7 +182,9 @@ plot(mean(draws_cfa$lambda), mean(draws_cfappip$lambda),
 
 hist(mean(draws_cfa$lambda) - mean(draws_cfappip$lambda),
      xlab = "Lambda EAP Difference", 
-     main = "Uninformative Lambda Prior EAP(lambda) - Empirical Lambda Prior EAP(lambda)")
+     main = "Uninformative Lambda Prior - Empirical Lambda Prior")
+# 7/10 times the uniformative prior p.d.'s EAP(lambda) is higher 
+sum(mean(draws_cfa$lambda) > mean(draws_cfappip$lambda))
 
 # Comparing factor loading SD estimates: uninformative vs. empirical prior
 
@@ -188,227 +194,189 @@ plot(sd(draws_cfa$lambda), sd(draws_cfappip$lambda),
 
 hist(sd(draws_cfa$lambda) - sd(draws_cfappip$lambda),
      xlab = "Lambda SD Difference", 
-     main = "Uninformative Lambda Prior SD(lambda) - Empirical Lambda Prior SD(lambda)")
+     main = "Uninformative Prior - Empirical Lambda Prior")
+# 7/10 times the uniformative prior p.d.'s SD(lambda) is higher
+sum(sd(draws_cfa$lambda) > sd(draws_cfappip$lambda))
 
-# Comparing unique EAP estimates: uninformative vs. empirical prior
+# Comparing unique SD EAP estimates: uninformative vs. empirical prior
+
 plot(mean(draws_cfa$psi), mean(draws_cfappip$psi),
      xlab = "Uninformative Prior", ylab = "Empirical Prior", 
      main = "Comparing EAPs for Psi")
-
 hist(mean(draws_cfa$psi) - mean(draws_cfappip$psi),
      xlab = "Psi EAP Difference",
-     main = "Uninformative Psi Prior EAP(psi) - Empirical Psi Prior EAP(psi)")
+     main = "Uninformative Prior - Empirical Psi Prior")
+# 9/10 times the uniformative prior p.d.'s EAP(psi) is higher
+sum(mean(draws_cfa$psi) > mean(draws_cfappip$psi))
 
+# Comparing theta EAP estimates: uninformative vs. empirical prior
 
+plot(mean(draws_cfa$theta), mean(draws_cfappip$theta),
+     xlab = "Uninformative Prior", ylab = "Empirical Prior",
+     main = "Comparing EAPs for Mu")
 
-# empirical prior for theta ===========================================================
+hist(mean(draws_cfa$theta) - mean(draws_cfappip$theta),
+     xlab = "Theta EAP Difference", 
+     main = "Uninformative Prior - Empirical Prior")
+# 42/177 times the uniformative prior p.d.'s EAP(mu) is higher 
+sum(mean(draws_cfa$theta) > mean(draws_cfappip$theta))
 
-modelCFA3_syntax = "
+# Comparing theta SD estimates: uninformative vs. empirical prior
 
-data {
-  int<lower=0> nObs;                 // number of observations
-  int<lower=0> nItems;               // number of items
-  matrix[nObs, nItems] Y;            // item responses in a matrix
+plot(sd(draws_cfa$theta), sd(draws_cfappip$theta),
+     xlab = "Uninformative Prior", ylab = "Empirical Prior",
+     main = "Comparing EAPs for Mu")
 
-  real meanLambdaMean;
-  real<lower=0> meanLambdaSD;
-  real<lower=0> sdLambdaRate;
-  
-  real meanMuMean;
-  real<lower=0> meanMuSD;
-  real<lower=0> sdMuRate;
-  
-  real<lower=0> ratePsiRate;
-  
-  real meanThetaMean;
-  real<lower=0> meanThetaSD;
-  real<lower=0> sdThetaRate;
-}
+hist(sd(draws_cfa$theta) - sd(draws_cfappip$theta),
+     xlab = "Theta SD Difference", 
+     main = "Uninformative Prior - Empirical Prior")
+# 11/177 times the uniformative prior p.d.'s SD(mu) is higher 
+sum(sd(draws_cfa$theta) > sd(draws_cfappip$theta))
 
-parameters {
-  vector[nObs] theta;                
-  real meanTheta;
-  real<lower=0> sdTheta;
-    
-  vector[nItems] lambda;
-  real meanLambda;
-  real<lower=0> sdLambda;
-  
-  vector[nItems] mu;
-  real meanMu;
-  real<lower=0> sdMu;
-  
-  vector<lower=0>[nItems] psi;
-  real<lower=0> psiRate;
-}
+#############################
+# CFA with empirical priors #
+#############################
+# 2. Empirical prior on item parameters and theta
 
-model {
-  
-  meanLambda ~ normal(meanLambdaMean, meanLambdaSD);
-  sdLambda ~ exponential(sdLambdaRate);
-  lambda ~ normal(meanLambda, sdLambda);
-  
-  meanMu ~ normal(meanMuMean, meanMuSD);
-  sdMu ~ exponential(sdMuRate);
-  mu ~ normal(meanMu, sdMu); 
-  
-  psiRate ~ exponential(ratePsiRate);
-  psi ~ exponential(psiRate);            
-  
-  meanTheta ~ normal(meanThetaMean, meanThetaSD);
-  sdTheta ~ exponential(sdThetaRate);
-  theta ~ normal(meanTheta, sdTheta);                  
-  
-  for (item in 1:nItems){
-    Y[,item] ~ normal(mu[item] + lambda[item]*theta, psi[item]);
-  }
-  
-}
+# Import: Do not use an empirical prior on theta!
 
-"
-modelCFA3_stan = cmdstan_model(stan_file = write_stan_file(modelCFA3_syntax))
+# Compile model into executable
+mdl_cfapp <- cmdstan_model("./stan/4g/cfa_pp.stan", pedantic = TRUE)
 
-modelCFA3_data = list(
-  nObs = nObs,
-  nItems = nItems,
-  Y = conspiracyItems, 
-  meanLambdaMean = 0,
-  meanLambdaSD = 1,
-  sdLambdaRate = .1,
-  meanMuMean = 0,
-  meanMuSD = 1,
-  sdMuRate = .1,
-  ratePsiRate = .1,
-  meanThetaMean = 0,
-  meanThetaSD = 1,
-  sdThetaRate = .1
+#############
+# Stan list # 
+#############
+
+stanls_cfapp <- list(
+  "P" = P,
+  "I" = I,
+  "Y" = citems,
+  "mu_hypmean" = 0,
+  "mu_hypsd" = 1,
+  "mu_hyprate" = 0.1,
+  "lambda_hypmean" = 0,
+  "lambda_hypsd" = 1,
+  "lambda_hyprate" = 0.1,
+  "psi_hyprate" = 0.1,
+  "theta_hypmean" = 0,
+  "theta_hypsd" = 1,
+  "theta_hyprate" = 0.1
 )
 
-
-modelCFA3_samples = modelCFA3_stan$sample(
-  data = modelCFA3_data,
-  seed = 191120223,
+# Fit the model to the data
+fit_cfapp <- mdl_cfapp$sample(
+  data = stanls_cfapp,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
-  iter_warmup = 2000,
+  iter_warmup = 3000,
   iter_sampling = 2000,
-  init = function() list(lambda=rnorm(nItems, mean=5, sd=1))
+  init = function() list("lambda" = rnorm(I, mean = 5, sd = 1))
 )
 
-# checking convergence
-max(modelCFA3_samples$summary()$rhat, na.rm = TRUE)
+###############
+# Diagnostics #
+###############
 
-# item parameter results
-print(
-  modelCFA3_samples$summary(
-    variables = c("meanTheta", "sdTheta", "mu", "meanMu", "sdMu", "lambda", "meanLambda", "sdLambda", "psi", "psiRate")
-  ), 
-  n=Inf
+# Assess convergence: summary of all parameters
+fit_cfapp$cmdstan_diagnose()
+# Divergent transitions – reparameterize the model!
+fit_cfapp$diagnostic_summary()
+
+# Checking convergence
+max(fit_cfapp$summary()$rhat, na.rm = TRUE)
+
+###########
+# Summary #
+###########
+
+print(fit_cfapp$summary(c("mu", "mu_mean", "mu_sd", "lambda", "lambda_mean", "lambda_sd", "psi", "psi_rate", "theta", "theta_mean", "theta_sd")), n = Inf)
+
+#########
+# Draws #
+#########
+
+draws_cfapp <- posterior::as_draws_rvars(fit_cfapp$draws())
+
+# Trace plots
+mcmc_trace(fit_cfapp$draws(variables = c("theta_mean", "theta_sd")))
+# Important: The results are so bad, because to estimate the variance of theta
+# we need a marker item. Here, we try to get the posterior p.d. only on the 
+# basis of the prior p.d.. This identification is too weak! We need stronger
+# identification – we need the data likelihood to be identified.
+
+#############################
+# CFA with empirical priors #
+#############################
+# 3. Empirical prior on theta, fixed item parameters
+
+# Compile model into executable
+mdl_cfappfixip <- cmdstan_model("./stan/4g/cfa_ppfixip.stan", pedantic = TRUE)
+
+# Item intercept hyperparameters
+mu_mean <- rep(0, I)
+Mu_cov <- diag(1000, I)
+
+# Item discrimination/factor loading hyperparameters
+lambda_mean <- rep(0, I, I)
+Lambda_cov <- diag(1000, I)
+
+# Unique standard deviation hyperparameters
+psi_rate <- rep(0.01, I)
+
+#############
+# Stan list #
+#############
+
+stanls_cfappfixip <- list(
+  "P" = P,
+  "I" = I,
+  "Y" = citems,
+  "mu_mean" = mu_mean,
+  "Mu_cov" = Mu_cov,
+  "lambda_mean" = lambda_mean,
+  "Lambda_cov" = Lambda_cov,
+  "psi_rate" = psi_rate,
+  "theta_hypmean" = 0,
+  "theta_hypsd" = 1,
+  "theta_hyprate" = 0.1
 )
 
-mcmc_trace(modelCFA3_samples$draws(variables = c("meanTheta", "sdTheta")))
-
-# model4: empirical theta prior, fixed prior on item parameters
-modelCFA4_syntax = "
-
-data {
-  int<lower=0> nObs;                 // number of observations
-  int<lower=0> nItems;               // number of items
-  matrix[nObs, nItems] Y;            // item responses in a matrix
-
-  vector[nItems] meanMu;
-  matrix[nItems, nItems] covMu;      // prior covariance matrix for coefficients
-  
-  vector[nItems] meanLambda;         // prior mean vector for coefficients
-  matrix[nItems, nItems] covLambda;  // prior covariance matrix for coefficients
-  
-  vector[nItems] psiRate;            // prior rate parameter for unique standard deviations
-  
-  real meanThetaMean;
-  real<lower=0> meanThetaSD;
-  real<lower=0> sdThetaRate;
-  
-}
-
-parameters {
-  vector[nObs] theta;                // the latent variables (one for each person)
-  real meanTheta;
-  real<lower=0> sdTheta;
-  vector[nItems] mu;                 // the item intercepts (one for each item)
-  vector[nItems] lambda;             // the factor loadings/item discriminations (one for each item)
-  vector<lower=0>[nItems] psi;       // the unique standard deviations (one for each item)   
-}
-
-model {
-  
-  lambda ~ multi_normal(meanLambda, covLambda); // Prior for item discrimination/factor loadings
-  mu ~ multi_normal(meanMu, covMu);             // Prior for item intercepts
-  psi ~ exponential(psiRate);                   // Prior for unique standard deviations
-  
-  meanTheta ~ normal(meanThetaMean, meanThetaSD);
-  sdTheta ~ exponential(sdThetaRate);
-  theta ~ normal(meanTheta, sdTheta);                  
-  
-  for (item in 1:nItems){
-    Y[,item] ~ normal(mu[item] + lambda[item]*theta, psi[item]);
-  }
-  
-}
-
-"
-
-modelCFA4_stan = cmdstan_model(stan_file = write_stan_file(modelCFA4_syntax))
-
-
-# item intercept hyperparameters
-muMeanHyperParameter = 0
-muMeanVecHP = rep(muMeanHyperParameter, nItems)
-
-muVarianceHyperParameter = 1
-muCovarianceMatrixHP = diag(x = muVarianceHyperParameter, nrow = nItems)
-
-# item discrimination/factor loading hyperparameters
-lambdaMeanHyperParameter = 0
-lambdaMeanVecHP = rep(lambdaMeanHyperParameter, nItems)
-
-lambdaVarianceHyperParameter = 1
-lambdaCovarianceMatrixHP = diag(x = lambdaVarianceHyperParameter, nrow = nItems)
-
-# unique standard deviation hyperparameters
-psiRateHyperParameter = .01
-psiRateVecHP = rep(psiRateHyperParameter, nItems)
-
-
-modelCFA4_data = list(
-  nObs = nObs,
-  nItems = nItems,
-  Y = conspiracyItems, 
-  meanMu = muMeanVecHP,
-  covMu = muCovarianceMatrixHP,
-  meanLambda = lambdaMeanVecHP,
-  covLambda = lambdaCovarianceMatrixHP,
-  psiRate = psiRateVecHP,
-  meanThetaMean = 0,
-  meanThetaSD = 1,
-  sdThetaRate = 1
-)
-
-modelCFA4_samples = modelCFA4_stan$sample(
-  data = modelCFA4_data,
-  seed = 191120224,
+# Fit the model to the data
+fit_cfappfixip <- mdl_cfappfixip$sample(
+  data = stanls_cfappfixip,
+  seed = 112,
   chains = 4,
   parallel_chains = 4,
-  iter_warmup = 2000,
+  iter_warmup = 3000,
   iter_sampling = 2000,
-  init = function() list(lambda=rnorm(nItems, mean=5, sd=1))
+  init = function() list("lambda" = rnorm(I, mean = 5, sd = 1))
 )
 
-# checking convergence
-max(modelCFA4_samples$summary()$rhat, na.rm = TRUE)
+###############
+# Diagnostics #
+###############
 
-# item parameter results
-print(modelCFA4_samples$summary(variables = c("meanTheta", "sdTheta", "mu", "lambda", "psi")) ,n=Inf)
+# Assess convergence: summary of all parameters
+fit_cfappfixip$cmdstan_diagnose()
+# Divergent transitions – reparameterize the model!
+fit_cfappfixip$diagnostic_summary()
 
-save.image(file = "lecture04g.RData")
+# Checking convergence
+max(fit_cfapp$summary()$rhat, na.rm = TRUE)
 
+###########
+# Summary #
+###########
 
+print(fit_cfappfixip$summary(c("mu", "lambda", "psi", "theta", "theta_mean", "theta_sd")), n = Inf)
+
+#########
+# Draws #
+#########
+
+draws_cfappfixip <- posterior::as_draws_rvars(fit_cfappfixip$draws())
+
+# Trace plots
+mcmc_trace(fit_cfappfixip$draws(variables = c("theta_mean", "theta_sd")))
+# Important: Very BAD! Do not touch theta this way!
