@@ -358,7 +358,7 @@ plot(mean(draws_binom2plsi$theta), mean(draws_cfa$theta),
 # aka. Graded Response Model #
 ##############################
 
-# compile model
+# Compile model
 mdl_2polsi <- cmdstan_model("./stan/4d/2pol_si.stan", pedantic = TRUE)
 
 # Number of response categories
