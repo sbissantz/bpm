@@ -28,7 +28,7 @@ P <- nrow(citems)
 #################################
 
 # Compile model into executable
-mdl_cfa <- cmdstan_model("./stan/4g/cfa.stan", pedantic = TRUE)
+mdl_cfa <- cmdstan_model("./stan/4b/cfa.stan", pedantic = TRUE)
 
 # Item intercept hyperparameters
 mu_mean <- rep(0, I)
