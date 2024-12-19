@@ -240,6 +240,13 @@ plot(sd(draws_2polsim$lambda), sd(draws_2polsi$lambda),
 
 # Multidimesnional GRM + Factor Variance: Strong identification (model/data likelihood and posterior) ===========================
 
+# todo todo
+
+# Compile model
+mdl_md2polsim <- cmdstan_model("./stan/4h/md2pol_si_marker.stan",
+  pedantic = TRUE)
+
+# Check code again!
 
 modelMultidimensionalGRM_markerItem_syntax = "
 data {
@@ -365,8 +372,6 @@ generated quantities{
   thetaCov_pre = diag_pre_multiply(thetaSD, thetaCorrL);
   thetaCov = multiply_lower_tri_self_transpose(thetaCov_pre);
 }
-
-
 "
 
 modelMultidimensionalGRM_markerItem_stan = cmdstan_model(stan_file = write_stan_file(modelMultidimensionalGRM_markerItem_syntax))
