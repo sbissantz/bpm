@@ -92,11 +92,12 @@ transformed parameters {
 }
 
 model { 
+  matrix[D, D] L_cov_theta;
+  L_cov_theta = diag_pre_multiply(theta_sd, L_cor_theta);
   // Priors
   lambda_init ~ multi_normal(lambda_mean, Lambda_cov); 
   L_cor_theta ~ lkj_corr_cholesky(1.0);    
   theta_sd ~ lognormal(theta_sd_loc, theta_sd_scl);
-  L_cov_theta = diag_pre_multiply(theta_sd, L_cor_theta);
   theta ~ multi_normal_cholesky(theta_mean, L_cor_theta);    
   // Likelihood 
   for (i in 1:I) { 
@@ -115,6 +116,8 @@ generated quantities {
   for(i in 1:I) {
     mu[i] = -1*thr[i];              
   }
+  // Important: We can usually ignore the covariance. It is to hard to interpret
+  // and we are usually interessted in the correlations 
   cholesky_factor_cov[D] Theta_cov_pre;
   cov_matrix[D] Theta_cov;
   corr_matrix[D] Theta_cor;  // Between factor correlation 
