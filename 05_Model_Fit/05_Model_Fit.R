@@ -105,9 +105,34 @@ print(fit_2polsi$summary(c("lambda", "mu")), n = Inf)
 #########
 
 draws_2polsi <- posterior::as_draws_rvars(fit_2polsi$draws())
-Y_sim <- posterior::as_draws_rvars(fit_2polsi$draws("Y_sim"))
+Y_sim <- posterior::as_draws_matrix(fit_2polsi$draws("Y_sim"))
+dim(Y_sim)
 
-Y_sim
+# Reshape Y_sim into a 3D array of dimensions 8000 x 10 x 177
+Yarr_sim <- array(Y_sim, dim = c(8000, 10, 177))
+# Reshape the array into a 177 x 10 x 8000 array 
+Yt_sim <- aperm(Yarr_sim, c(3, 2, 1))
+
+# Calculate the mean of the simulated data
+PPMC$mean <- t(apply(Yt_sim, c(2,3), mean))
+
+# Plot the density of the mean of the first item
+plot(density(PPMC$mean[,1]))
+# Add a vertical line for the observed mean
+abline(v = mean(citems$PolConsp1), lty = 2, col = 2, lwd = 3)
+
+
+
+# Get all unique combinations
+n_combi <- choose(I, 2)
+combi <- combn(1:I, 2) 
+
+Yi1_arr <- as_draws_matrix(Y_sim[i, combi[1,i]])
+Yi2_arr <- as_draws_matrix(Y_sim[i, combi[2,i]])
+cor(Yi1_arr, Yi2_arr)
+
+
+
 
 # TODO
 
