@@ -35,10 +35,10 @@ generated quantities {
   for(i in 1:I) {
     mu[i] = -1*thr[i];              // From tresholds to intercepts
   }
-  // Absolute fit: PPMC
+  // Absolute fit: PPC
   array[I, P] int<lower = 1, upper = 5> Y_sim;
   // Relative fit: ...for WAIC/LOOIC
-  vector[P]  lnL = rep_vector(0, P); // Log likelihood per person
+  vector[P]  lnL = rep_vector(0.0, P); // Log likelihood per person
   // Model implied data and log likelihood
   for (i in 1:I) {
     for (p in 1:P) {
