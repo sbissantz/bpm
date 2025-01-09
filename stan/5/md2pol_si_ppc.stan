@@ -91,4 +91,20 @@ generated quantities {
   // Calculate the between factor correlation from the Cholesky factor
   // Note: Theta_cor = L_cor_theta * L_cor_theta' 
   Theta_cor = multiply_lower_tri_self_transpose(L_cor_theta);
+  
+  
+  // Absolute fit PPC:
+  array[I, P] int<lower=0> Y_sim;
+  
+  // Relative fit: LOO/WAIC
+  vector[P] lnL = rep_vector(0.0, P); // Log likelihood per person
+  // Model implied data and log likelihood
+  for (i in 1:I){
+    for (p in 1:P){
+      // Generate data conditional on the model (p.d. & data)
+      Y_sim[i, p] = ordered_logistic_rng(Theta[p,]*Lambda[i,1:D]', thr[i]);
+      // Calculate conditional data log likelihood for LOO/WAIC
+      lnL[p] = lnL[p] + ordered_logistic_lpmf(Y[i, p] | Theta[p,] * Lambda[i,1:D]', thr[i]);
+    }
+  }  
 }
